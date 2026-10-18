@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shared Bible</title>
+<style>
+  :root { --bg:#faf8f4; --fg:#222; --muted:#777; --line:#ddd; --accent:#8a5a2b; --pane:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16171a; --fg:#e6e6e6; --muted:#9a9a9a; --line:#33353a; --accent:#d9a066; --pane:#1d1f23; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--fg); font: 17px/1.6 Georgia, serif; display: flex; flex-direction: column; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); font-family: system-ui, sans-serif; font-size: 14px; }
+  header .sp { flex: 1; }
+  select, button { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--pane); color: var(--fg); }
+  button { cursor: pointer; }
+  main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+  .pane { overflow-y: auto; padding: 16px 20px 60px; background: var(--pane); }
+  .pane + .pane { border-left: 1px solid var(--line); }
+  .pane h2 { margin: 0 0 12px; font: 600 15px system-ui, sans-serif; color: var(--accent); }
+  .v { margin: 0 0 8px; }
+  .v sup { color: var(--accent); font: 600 12px system-ui, sans-serif; margin-right: 4px; }
+  .v.hl { background: rgba(217,160,102,.25); border-radius: 4px; }
+  .c { margin: 0 0 16px; white-space: pre-wrap; }
+  .c .ref { display: block; color: var(--accent); font: 600 13px system-ui, sans-serif; margin-bottom: 2px; }
+  .msg { color: var(--muted); font-family: system-ui, sans-serif; }
+  @media (max-width: 760px) {
+    main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+    .pane + .pane { border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <select id="book" aria-label="Book"></select>
+  <select id="chapter" aria-label="Chapter"></select>
+  <button id="prev" aria-label="Previous chapter">&larr;</button>
+  <button id="next" aria-label="Next chapter">&rarr;</button>
+  <span class="sp"></span>
+  <label>Pane 1 <select id="version"><option value="web">WEB</option><option value="kjv">KJV</option></select></label>
+  <label>Pane 2 <select id="source"></select></label>
+</header>
+<main>
+  <section class="pane" id="pane1"></section>
+  <section class="pane" id="pane2"></section>
+</main>
+
+<script>
+// [abbrev, name, HelloAO book id] in the order used by data/web.json and data/kjv.json
+const BOOKS = [
+  ['gn','Genesis','GEN'],['ex','Exodus','EXO'],['lv','Leviticus','LEV'],['nm','Numbers','NUM'],['dt','Deuteronomy','DEU'],
+  ['js','Joshua','JOS'],['jud','Judges','JDG'],['rt','Ruth','RUT'],['1sm','1 Samuel','1SA'],['2sm','2 Samuel','2SA'],
+  ['1kgs','1 Kings','1KI'],['2kgs','2 Kings','2KI'],['1ch','1 Chronicles','1CH'],['2ch','2 Chronicles','2CH'],['ezr','Ezra','EZR'],
+  ['ne','Nehemiah','NEH'],['et','Esther','EST'],['job','Job','JOB'],['ps','Psalms','PSA'],['prv','Proverbs','PRO'],
+  ['ec','Ecclesiastes','ECC'],['so','Song of Solomon','SNG'],['is','Isaiah','ISA'],['jr','Jeremiah','JER'],['lm','Lamentations','LAM'],
+  ['ez','Ezekiel','EZK'],['dn','Daniel','DAN'],['ho','Hosea','HOS'],['jl','Joel','JOL'],['am','Amos','AMO'],
+  ['ob','Obadiah','OBA'],['jn','Jonah','JON'],['mi','Micah','MIC'],['na','Nahum','NAM'],['hk','Habakkuk','HAB'],
+  ['zp','Zephaniah','ZEP'],['hg','Haggai','HAG'],['zc','Zechariah','ZEC'],['ml','Malachi','MAL'],
+  ['mt','Matthew','MAT'],['mk','Mark','MRK'],['lk','Luke','LUK'],['jo','John','JHN'],['act','Acts','ACT'],
+  ['rm','Romans','ROM'],['1co','1 Corinthians','1CO'],['2co','2 Corinthians','2CO'],['gl','Galatians','GAL'],['eph','Ephesians','EPH'],
+  ['ph','Philippians','PHP'],['cl','Colossians','COL'],['1ts','1 Thessalonians','1TH'],['2ts','2 Thessalonians','2TH'],
+  ['1tm','1 Timothy','1TI'],['2tm','2 Timothy','2TI'],['tt','Titus','TIT'],['phm','Philemon','PHM'],['hb','Hebrews','HEB'],
+  ['jm','James','JAS'],['1pe','1 Peter','1PE'],['2pe','2 Peter','2PE'],['1jo','1 John','1JN'],['2jo','2 John','2JN'],
+  ['3jo','3 John','3JN'],['jd','Jude','JUD'],['re','Revelation','REV'],
+];
+const OT_COUNT = 39;
+const SOURCES = { 'john-gill': 'John Gill', 'matthew-henry': 'Matthew Henry' };
+const COMMENTARY_API = 'https://bible.helloao.org/api/c';
+
+const $ = (id) => document.getElementById(id);
+const els = { book: $('book'), chapter: $('chapter'), version: $('version'), source: $('source'), pane1: $('pane1'), pane2: $('pane2') };
+
+const state = { book: 0, chapter: 1, version: 'web', source: 'john-gill', sourceIsManual: false };
+const bibles = {};        // version -> parsed json
+const commentaryCache = {}; // "source/BOOK/chapter" -> parsed json
+let renderToken = 0;
+
+const defaultSource = (bookIdx) => (bookIdx < OT_COUNT ? 'john-gill' : 'matthew-henry');
+
+function setMsg(pane, text) {
+  pane.replaceChildren();
+  const p = document.createElement('p');
+  p.className = 'msg';
+  p.textContent = text;
+  pane.appendChild(p);
+}
+
+async function loadBible(version) {
+  if (!bibles[version]) {
+    const res = await fetch(`data/${version}.json`);
+    if (!res.ok) throw new Error(`Could not load ${version.toUpperCase()} (${res.status})`);
+    bibles[version] = await res.json();
+  }
+  return bibles[version];
+}
+
+async function loadCommentary(source, bookIdx, chapter) {
+  const key = `${source}/${BOOKS[bookIdx][2]}/${chapter}`;
+  if (!commentaryCache[key]) {
+    const res = await fetch(`${COMMENTARY_API}/${source}/${BOOKS[bookIdx][2]}/${chapter}.json`);
+    if (!res.ok) throw new Error(`${SOURCES[source]} has no entry for this chapter (${res.status})`);
+    commentaryCache[key] = await res.json();
+  }
+  return commentaryCache[key];
+}
+
+// HelloAO verse content is a list of strings; join and ignore any non-string parts.
+const flatten = (parts) => (parts || []).filter((x) => typeof x === 'string').join(' ').trim();
+
+function renderBible(data) {
+  const verses = data[state.book].chapters[state.chapter - 1] || [];
+  els.pane1.replaceChildren();
+  const h = document.createElement('h2');
+  h.textContent = `${BOOKS[state.book][1]} ${state.chapter} (${state.version.toUpperCase()})`;
+  els.pane1.appendChild(h);
+  verses.forEach((text, i) => {
+    const p = document.createElement('p');
+    p.className = 'v';
+    p.dataset.v = i + 1;
+    const n = document.createElement('sup');
+    n.textContent = i + 1;
+    p.append(n, text);
+    els.pane1.appendChild(p);
+  });
+  els.pane1.scrollTop = 0;
+}
+
+function renderCommentary(json) {
+  els.pane2.replaceChildren();
+  const h = document.createElement('h2');
+  h.textContent = `${BOOKS[state.book][1]} ${state.chapter} (${SOURCES[state.source]})`;
+  els.pane2.appendChild(h);
+  const chapter = json.chapter || {};
+  const intro = typeof chapter.introduction === 'string' ? chapter.introduction : flatten(chapter.introduction);
+  if (intro) {
+    const p = document.createElement('p');
+    p.className = 'c';
+    p.textContent = intro;
+    els.pane2.appendChild(p);
+  }
+  const items = (chapter.content || []).filter((x) => x.type === 'verse');
+  if (!items.length && !intro) {
+    setMsg(els.pane2, `${SOURCES[state.source]} has no commentary for ${BOOKS[state.book][1]} ${state.chapter}.`);
+    return;
+  }
+  items.forEach((item) => {
+    const text = flatten(item.content);
+    if (!text) return;
+    const div = document.createElement('div');
+    div.className = 'c';
+    div.dataset.v = item.number;
+    const ref = document.createElement('span');
+    ref.className = 'ref';
+    ref.textContent = `v. ${item.number}`;
+    div.append(ref, text);
+    // clicking a commentary entry highlights its verse in pane 1
+    div.addEventListener('click', () => highlight(item.number));
+    els.pane2.appendChild(div);
+  });
+  els.pane2.scrollTop = 0;
+}
+
+function highlight(verse) {
+  els.pane1.querySelectorAll('.v.hl').forEach((el) => el.classList.remove('hl'));
+  const el = els.pane1.querySelector(`.v[data-v="${verse}"]`);
+  if (el) { el.classList.add('hl'); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+}
+
+async function render() {
+  const token = ++renderToken;
+  syncControls();
+  setMsg(els.pane1, 'Loading…');
+  setMsg(els.pane2, 'Loading…');
+  try {
+    const data = await loadBible(state.version);
+    if (token !== renderToken) return;
+    syncControls(); // chapter list needs the loaded Bible
+    renderBible(data);
+  } catch (err) {
+    if (token === renderToken) setMsg(els.pane1, err.message);
+  }
+  try {
+    const json = await loadCommentary(state.source, state.book, state.chapter);
+    if (token !== renderToken) return;
+    renderCommentary(json);
+  } catch (err) {
+    if (token === renderToken) setMsg(els.pane2, err.message);
+  }
+  try { localStorage.setItem('sharedBible', JSON.stringify(state)); } catch (e) { /* storage unavailable */ }
+}
+
+function syncControls() {
+  els.book.value = state.book;
+  els.version.value = state.version;
+  els.source.value = state.source;
+  const count = bibles.web ? bibles.web[state.book].chapters.length : (bibles[state.version] || [])[state.book]?.chapters.length;
+  if (count && els.chapter.options.length !== count) {
+    els.chapter.replaceChildren(...Array.from({ length: count }, (_, i) => new Option(i + 1, i + 1)));
+  }
+  els.chapter.value = state.chapter;
+}
+
+async function chapterCount(bookIdx) {
+  const data = await loadBible(state.version);
+  return data[bookIdx].chapters.length;
+}
+
+async function go(bookIdx, chapter) {
+  const crossedTestament = (bookIdx < OT_COUNT) !== (state.book < OT_COUNT);
+  state.book = bookIdx;
+  state.chapter = chapter;
+  // a manual source choice sticks until we cross into the other testament
+  if (!state.sourceIsManual || crossedTestament) {
+    state.source = defaultSource(bookIdx);
+    state.sourceIsManual = false;
+  }
+  await chapterCount(bookIdx); // ensure the chapter list can be built
+  els.chapter.replaceChildren();
+  render();
+}
+
+async function step(delta) {
+  let b = state.book, c = state.chapter + delta;
+  if (c < 1) {
+    if (b === 0) return;
+    b -= 1; c = await chapterCount(b);
+  } else if (c > await chapterCount(b)) {
+    if (b === BOOKS.length - 1) return;
+    b += 1; c = 1;
+  }
+  go(b, c);
+}
+
+function init() {
+  els.book.replaceChildren(...BOOKS.map((b, i) => new Option(b[1], i)));
+  els.source.replaceChildren(...Object.entries(SOURCES).map(([id, name]) => new Option(name, id)));
+
+  try {
+    const saved = JSON.parse(localStorage.getItem('sharedBible') || 'null');
+    if (saved && BOOKS[saved.book] && SOURCES[saved.source]) Object.assign(state, saved);
+  } catch (e) { /* ignore bad saved state */ }
+
+  els.book.addEventListener('change', () => go(+els.book.value, 1));
+  els.chapter.addEventListener('change', () => go(state.book, +els.chapter.value));
+  els.version.addEventListener('change', () => { state.version = els.version.value; els.chapter.replaceChildren(); render(); });
+  els.source.addEventListener('change', () => { state.source = els.source.value; state.sourceIsManual = true; render(); });
+  $('prev').addEventListener('click', () => step(-1));
+  $('next').addEventListener('click', () => step(1));
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'SELECT') return;
+    if (e.key === 'ArrowLeft') step(-1);
+    if (e.key === 'ArrowRight') step(1);
+  });
+
+  els.chapter.replaceChildren();
+  render();
+}
+
+init();
+</script>
+</body>
+</html>
