@@ -494,7 +494,8 @@ function init() {
   els.source.addEventListener('change', () => { state.source = els.source.value; state.sourceIsManual = true; render(); });
   els.pane1.addEventListener('click', (e) => {
     const num = e.target.closest('.v[data-c] sup');
-    if (num) jumpToCommentary(num.parentElement.dataset.c);
+    // in poetry the number sits inside a .poem line, so go up to the verse span
+    if (num) jumpToCommentary(num.closest('.v').dataset.c);
   });
   document.querySelectorAll('.pgdn').forEach((btn) => btn.addEventListener('click', () => {
     const pane = $(btn.dataset.pane);
