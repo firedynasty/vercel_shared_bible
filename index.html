@@ -40,6 +40,16 @@
   .c { margin: 0 0 16px; white-space: pre-wrap; }
   .c .ref { display: block; color: var(--accent); font: 600 13px system-ui, sans-serif; margin-bottom: 2px; }
   .msg { color: var(--muted); font-family: system-ui, sans-serif; }
+  button.ref { background: #3b82f6; color: #fff; border-color: #3b82f6; font-size: 12px; font-weight: 600; padding: 2px 8px; }
+  button.ref:hover { background: #2563eb; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 10; display: flex; justify-content: center; align-items: center; font-family: system-ui, sans-serif; }
+  .modal[hidden] { display: none; }
+  .modal .box { background: var(--pane); color: var(--fg); border-radius: 14px; padding: 20px; width: 90%; max-width: 440px; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .modal h3 { margin: 0 0 12px; font-size: 16px; text-align: center; }
+  .modal input { width: 100%; padding: 8px 10px; font: inherit; font-size: 15px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+  .modal .err { color: #dc2626; font-size: 13px; min-height: 1.2em; margin: 6px 0; }
+  .modal .recent { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+  .modal .row { display: flex; gap: 8px; justify-content: flex-end; }
   @media (max-width: 760px) {
     main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
     .wrap + .wrap { border-left: 0; border-top: 1px solid var(--line); }
@@ -48,6 +58,7 @@
 </head>
 <body>
 <header>
+  <button id="refBtn" class="ref" title="Go to a Bible reference (e)">Ref(e)</button>
   <select id="book" aria-label="Book"></select>
   <select id="chapter" aria-label="Chapter"></select>
   <button id="prev" aria-label="Previous chapter">&larr;</button>
@@ -69,6 +80,16 @@
     <button class="pgdn" data-pane="pane2" aria-label="Page down in pane 2" title="Page down">&#9660;</button>
   </div>
 </main>
+
+<div class="modal" id="refModal" hidden>
+  <div class="box">
+    <h3>Go to Reference</h3>
+    <input id="refInput" type="text" autocomplete="off" placeholder="John 3:16, 1 Cor 13, Ps 23, or paste a BibleGateway link">
+    <div class="err" id="refErr"></div>
+    <div class="recent" id="refRecent"></div>
+    <div class="row"><button id="refCancel">Cancel</button><button id="refGo" class="ref">Go</button></div>
+  </div>
+</div>
 
 <script>
 // [abbrev, name, HelloAO book id]
@@ -96,6 +117,80 @@ const BIBLE_API = 'https://bible.helloao.org/api/BSB';
 const CHAPTERS = [50,40,27,36,34,24,21,4,31,24,22,25,29,36,10,13,10,42,150,31,12,8,66,52,5,48,12,14,3,9,1,4,7,3,3,3,2,14,4,
   28,16,24,21,28,16,16,13,6,6,4,4,5,3,6,4,3,1,13,5,5,3,5,1,1,1,22];
 
+// Book name / abbreviation -> internal abbrev (same table as the main Bible app)
+const BOOK_ALIASES = {
+  // Full names
+  'genesis': 'gn', 'exodus': 'ex', 'leviticus': 'lv', 'numbers': 'nm', 'deuteronomy': 'dt',
+  'joshua': 'js', 'judges': 'jud', 'ruth': 'rt', '1 samuel': '1sm', '2 samuel': '2sm',
+  '1 kings': '1kgs', '2 kings': '2kgs', '1 chronicles': '1ch', '2 chronicles': '2ch',
+  'ezra': 'ezr', 'nehemiah': 'ne', 'esther': 'et', 'job': 'job', 'psalm': 'ps', 'psalms': 'ps',
+  'proverbs': 'prv', 'ecclesiastes': 'ec', 'song of solomon': 'so', 'isaiah': 'is',
+  'jeremiah': 'jr', 'lamentations': 'lm', 'ezekiel': 'ez', 'daniel': 'dn',
+  'hosea': 'ho', 'joel': 'jl', 'amos': 'am', 'obadiah': 'ob', 'jonah': 'jn',
+  'micah': 'mi', 'nahum': 'na', 'habakkuk': 'hk', 'zephaniah': 'zp', 'haggai': 'hg',
+  'zechariah': 'zc', 'malachi': 'ml', 'matthew': 'mt', 'mark': 'mk', 'luke': 'lk',
+  'john': 'jo', 'acts': 'act', 'romans': 'rm', '1 corinthians': '1co', '2 corinthians': '2co',
+  'galatians': 'gl', 'ephesians': 'eph', 'philippians': 'ph', 'colossians': 'cl',
+  '1 thessalonians': '1ts', '2 thessalonians': '2ts', '1 timothy': '1tm', '2 timothy': '2tm',
+  'titus': 'tt', 'philemon': 'phm', 'hebrews': 'hb', 'james': 'jm', '1 peter': '1pe',
+  '2 peter': '2pe', '1 john': '1jo', '2 john': '2jo', '3 john': '3jo', 'jude': 'jd',
+  'revelation': 're',
+  // Short abbreviations
+  'gen': 'gn', 'exo': 'ex', 'exod': 'ex', 'ex': 'ex', 'lev': 'lv', 'num': 'nm', 'deut': 'dt', 'deu': 'dt',
+  'josh': 'js', 'jos': 'js', 'judg': 'jud',
+  '1sam': '1sm', '1 sam': '1sm', '2sam': '2sm', '2 sam': '2sm',
+  '1kgs': '1kgs', '1 kgs': '1kgs', '2kgs': '2kgs', '2 kgs': '2kgs',
+  '1chr': '1ch', '1 chr': '1ch', '2chr': '2ch', '2 chr': '2ch',
+  'neh': 'ne', 'est': 'et', 'ps': 'ps', 'psa': 'ps',
+  'prov': 'prv', 'pro': 'prv', 'eccl': 'ec', 'ecc': 'ec',
+  'song': 'so', 'sos': 'so', 'songs': 'so',
+  'isa': 'is', 'jer': 'jr', 'lam': 'lm', 'ezek': 'ez', 'eze': 'ez',
+  'dan': 'dn', 'hos': 'ho', 'oba': 'ob', 'ob': 'ob', 'jon': 'jn',
+  'mic': 'mi', 'nah': 'na', 'hab': 'hk', 'zeph': 'zp', 'zep': 'zp',
+  'hag': 'hg', 'zech': 'zc', 'zec': 'zc', 'mal': 'ml',
+  'matt': 'mt', 'mat': 'mt', 'mrk': 'mk', 'mk': 'mk', 'luk': 'lk', 'lk': 'lk',
+  'joh': 'jo', 'jn': 'jo', 'rom': 'rm',
+  '1cor': '1co', '1 cor': '1co', '2cor': '2co', '2 cor': '2co',
+  'gal': 'gl', 'eph': 'eph', 'phil': 'ph', 'php': 'ph', 'col': 'cl',
+  '1thess': '1ts', '1 thess': '1ts', '2thess': '2ts', '2 thess': '2ts',
+  '1tim': '1tm', '1 tim': '1tm', '2tim': '2tm', '2 tim': '2tm',
+  'tit': 'tt', 'phlm': 'phm', 'phm': 'phm', 'heb': 'hb',
+  'jas': 'jm', 'jam': 'jm',
+  '1pet': '1pe', '1 pet': '1pe', '2pet': '2pe', '2 pet': '2pe',
+  '1jn': '1jo', '1 jn': '1jo', '2jn': '2jo', '2 jn': '2jo', '3jn': '3jo', '3 jn': '3jo',
+  'rev': 're', 're': 're', 'revelations': 're'
+};
+
+// "John 3:16", "1 cor 13", "Ps 23:1-4", "Genesis", a bare chapter number, or a BibleGateway link.
+// Returns { book, chapter, verse } or { error }.
+function parseRef(input, currentBook) {
+  let text = input.trim();
+  const link = text.match(/^https?:\/\/(?:www\.)?biblegateway\.com\/passage\/?\?[^\s]*/i);
+  if (link) {
+    const m = link[0].match(/[?&]search=([^&#\s]+)/i);
+    if (m) { try { text = decodeURIComponent(m[1].replace(/\+/g, ' ')); } catch (e) { /* keep raw */ } }
+    const frag = link[0].match(/#v(\d+)/i);
+    if (frag && !/:/.test(text)) text += `:${frag[1]}`;
+  }
+  if (!text) return { error: 'Type a reference, e.g. John 3:16' };
+
+  let bookName = null, chapter = 1, verse = null;
+  let m = text.match(/^(\d?\s*[A-Za-z]+(?:\s+of\s+[A-Za-z]+)?)\.?\s+(\d+)(?::(\d+))?/);
+  if (m) { bookName = m[1]; chapter = +m[2]; verse = m[3] ? +m[3] : null; }
+  else if ((m = text.match(/^(\d?\s*[A-Za-z]+(?:\s+of\s+[A-Za-z]+)?)\.?$/))) bookName = m[1];
+  else if ((m = text.match(/^(\d+)(?::(\d+))?$/))) { chapter = +m[1]; verse = m[2] ? +m[2] : null; }
+  else return { error: `Couldn't read "${text}"` };
+
+  let book = currentBook;
+  if (bookName) {
+    const abbrev = BOOK_ALIASES[bookName.trim().toLowerCase().replace(/\s+/g, ' ')];
+    book = BOOKS.findIndex((b) => b[0] === abbrev);
+    if (book < 0) return { error: `Unknown book "${bookName.trim()}"` };
+  }
+  if (chapter < 1 || chapter > CHAPTERS[book]) return { error: `${BOOKS[book][1]} has ${CHAPTERS[book]} chapters` };
+  return { book, chapter, verse };
+}
+
 const $ = (id) => document.getElementById(id);
 const els = { book: $('book'), chapter: $('chapter'), source: $('source'), pane1: $('pane1'), pane2: $('pane2') };
 
@@ -103,6 +198,8 @@ const state = { book: 0, chapter: 1, source: 'john-gill', sourceIsManual: false 
 const bibleCache = {};      // "BOOK/chapter" -> parsed json
 const commentaryCache = {}; // "source/BOOK/chapter" -> parsed json
 let renderToken = 0;
+let pendingVerse = null;      // verse to highlight once a navigation finishes rendering
+let recent = [];              // last visited { book, chapter }, newest first
 
 const defaultSource = (bookIdx) => (bookIdx < OT_COUNT ? 'john-gill' : 'matthew-henry');
 
@@ -262,7 +359,12 @@ function jumpToCommentary(verse) {
 function highlight(verse) {
   els.pane1.querySelectorAll('.v.hl').forEach((el) => el.classList.remove('hl'));
   const el = els.pane1.querySelector(`.v[data-v="${verse}"]`);
-  if (el) { el.classList.add('hl'); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+  if (el) {
+    el.classList.add('hl');
+    // scroll only pane 1 (not the page), putting the verse about a third of the way down
+    const top = el.getBoundingClientRect().top - els.pane1.getBoundingClientRect().top + els.pane1.scrollTop - els.pane1.clientHeight / 3;
+    els.pane1.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }
 }
 
 async function render() {
@@ -284,6 +386,13 @@ async function render() {
   } catch (err) {
     if (token === renderToken) setMsg(els.pane2, err.message);
   }
+  if (token === renderToken && pendingVerse) {
+    const v = pendingVerse;
+    pendingVerse = null;
+    highlight(v);
+    const owner = els.pane1.querySelector(`.v[data-v="${v}"]`)?.dataset.c;
+    if (owner) jumpToCommentary(owner);
+  }
   try { localStorage.setItem('sharedBible', JSON.stringify(state)); } catch (e) { /* storage unavailable */ }
 }
 
@@ -297,7 +406,10 @@ function syncControls() {
   els.chapter.value = state.chapter;
 }
 
-function go(bookIdx, chapter) {
+function go(bookIdx, chapter, verse = null) {
+  pendingVerse = verse;
+  recent = [{ book: bookIdx, chapter }, ...recent.filter((r) => r.book !== bookIdx || r.chapter !== chapter)].slice(0, 8);
+  try { localStorage.setItem('sharedBibleRecent', JSON.stringify(recent)); } catch (e) { /* storage unavailable */ }
   const crossedTestament = (bookIdx < OT_COUNT) !== (state.book < OT_COUNT);
   state.book = bookIdx;
   state.chapter = chapter;
@@ -319,6 +431,43 @@ function step(delta) {
     b += 1; c = 1;
   }
   go(b, c);
+}
+
+function openRef() {
+  $('refErr').textContent = '';
+  $('refInput').value = '';
+  $('refRecent').replaceChildren(...recent.map((r) => {
+    const b = document.createElement('button');
+    b.textContent = `${BOOKS[r.book][1]} ${r.chapter}`;
+    b.addEventListener('click', () => { closeRef(); go(r.book, r.chapter); });
+    return b;
+  }));
+  $('refModal').hidden = false;
+  $('refInput').focus();
+}
+
+function closeRef() { $('refModal').hidden = true; }
+
+function submitRef() {
+  const r = parseRef($('refInput').value, state.book);
+  if (r.error) { $('refErr').textContent = r.error; return; }
+  closeRef();
+  go(r.book, r.chapter, r.verse);
+}
+
+function initRefModal() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('sharedBibleRecent') || '[]');
+    if (Array.isArray(saved)) recent = saved.filter((r) => BOOKS[r.book] && r.chapter >= 1 && r.chapter <= CHAPTERS[r.book]).slice(0, 8);
+  } catch (e) { /* ignore bad saved recents */ }
+  $('refBtn').addEventListener('click', openRef);
+  $('refGo').addEventListener('click', submitRef);
+  $('refCancel').addEventListener('click', closeRef);
+  $('refModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeRef(); });
+  $('refInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitRef();
+    if (e.key === 'Escape') closeRef();
+  });
 }
 
 function init() {
@@ -343,10 +492,13 @@ function init() {
     const pane = $(btn.dataset.pane);
     pane.scrollBy({ top: pane.clientHeight - 48, behavior: 'smooth' });
   }));
+  initRefModal();
   $('prev').addEventListener('click', () => step(-1));
   $('next').addEventListener('click', () => step(1));
   document.addEventListener('keydown', (e) => {
-    if (e.target.tagName === 'SELECT') return;
+    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+    if (!$('refModal').hidden) return;
+    if (e.key === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); openRef(); return; }
     if (e.key === 'ArrowLeft') step(-1);
     if (e.key === 'ArrowRight') step(1);
   });
