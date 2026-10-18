@@ -202,6 +202,7 @@ const bibleCache = {};      // "BOOK/chapter" -> parsed json
 const commentaryCache = {}; // "source/BOOK/chapter" -> parsed json
 let renderToken = 0;
 let pane2Cleared = false;     // session-only: when true, pane 2 stays empty and no commentary is fetched
+let restoreScroll = null;     // [pane1, pane2] scrollTop saved last visit, applied once after the first render
 let pendingVerse = null;      // verse to highlight once a navigation finishes rendering
 let recent = [];              // last visited { book, chapter }, newest first
 
@@ -394,6 +395,11 @@ async function render() {
       if (token === renderToken) setMsg(els.pane2, err.message);
     }
   }
+  if (token === renderToken && restoreScroll) {
+    els.pane1.scrollTop = restoreScroll[0];
+    els.pane2.scrollTop = restoreScroll[1];
+    restoreScroll = null;
+  }
   if (token === renderToken && pendingVerse) {
     const v = pendingVerse;
     pendingVerse = null;
@@ -439,6 +445,26 @@ function step(delta) {
     b += 1; c = 1;
   }
   go(b, c);
+}
+
+// Remember how far down each pane was scrolled, and restore it on the next visit (same chapter only).
+function initScrollMemory() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('sharedBibleScroll') || 'null');
+    if (saved && saved.book === state.book && saved.chapter === state.chapter) restoreScroll = [+saved.s1 || 0, +saved.s2 || 0];
+  } catch (e) { /* ignore bad saved scroll */ }
+  let timer = null;
+  const save = () => {
+    if (restoreScroll) return; // don't overwrite the saved spot before it has been restored
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      try {
+        localStorage.setItem('sharedBibleScroll', JSON.stringify({ book: state.book, chapter: state.chapter, s1: Math.round(els.pane1.scrollTop), s2: Math.round(els.pane2.scrollTop) }));
+      } catch (e) { /* storage unavailable */ }
+    }, 300);
+  };
+  els.pane1.addEventListener('scroll', save);
+  els.pane2.addEventListener('scroll', save);
 }
 
 function openRef() {
@@ -507,6 +533,7 @@ function init() {
     $('clr2').classList.toggle('on', pane2Cleared);
     render();
   });
+  initScrollMemory();
   initRefModal();
   $('prev').addEventListener('click', () => step(-1));
   $('next').addEventListener('click', () => step(1));
