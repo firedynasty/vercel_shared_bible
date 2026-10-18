@@ -41,6 +41,9 @@
   .c .ref { display: block; color: var(--accent); font: 600 13px system-ui, sans-serif; margin-bottom: 2px; }
   .msg { color: var(--muted); font-family: system-ui, sans-serif; }
   button.ref { background: #3b82f6; color: #fff; border-color: #3b82f6; font-size: 12px; font-weight: 600; padding: 2px 8px; }
+  button.clr { background: #ef4444; color: #fff; border-color: #ef4444; font-size: 12px; font-weight: 600; padding: 2px 8px; }
+  button.clr:hover { background: #dc2626; }
+  button.clr.on { background: #16a34a; border-color: #16a34a; }
   button.ref:hover { background: #2563eb; }
   .modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 10; display: flex; justify-content: center; align-items: center; font-family: system-ui, sans-serif; }
   .modal[hidden] { display: none; }
@@ -68,6 +71,7 @@
   <button id="fontUp" aria-label="Larger text" title="Larger text">A+</button>
   <button id="theme" aria-label="Toggle light/dark mode" title="Toggle light/dark mode"></button>
   <span class="msg">Pane 1: BSB</span>
+  <button id="clr2" class="clr" title="Clear pane 2 commentary (e.g. so it does not interfere when you search the page)">clr pane 2</button>
   <label>Pane 2 <select id="source"></select></label>
 </header>
 <main>
@@ -198,6 +202,7 @@ const state = { book: 0, chapter: 1, source: 'john-gill', sourceIsManual: false 
 const bibleCache = {};      // "BOOK/chapter" -> parsed json
 const commentaryCache = {}; // "source/BOOK/chapter" -> parsed json
 let renderToken = 0;
+let pane2Cleared = false;     // session-only: when true, pane 2 stays empty and no commentary is fetched
 let pendingVerse = null;      // verse to highlight once a navigation finishes rendering
 let recent = [];              // last visited { book, chapter }, newest first
 
@@ -379,12 +384,16 @@ async function render() {
   } catch (err) {
     if (token === renderToken) setMsg(els.pane1, err.message);
   }
-  try {
-    const json = await loadCommentary(state.source, state.book, state.chapter);
-    if (token !== renderToken) return;
-    renderCommentary(json);
-  } catch (err) {
-    if (token === renderToken) setMsg(els.pane2, err.message);
+  if (pane2Cleared) {
+    els.pane2.replaceChildren();
+  } else {
+    try {
+      const json = await loadCommentary(state.source, state.book, state.chapter);
+      if (token !== renderToken) return;
+      renderCommentary(json);
+    } catch (err) {
+      if (token === renderToken) setMsg(els.pane2, err.message);
+    }
   }
   if (token === renderToken && pendingVerse) {
     const v = pendingVerse;
@@ -492,6 +501,12 @@ function init() {
     const pane = $(btn.dataset.pane);
     pane.scrollBy({ top: pane.clientHeight - 48, behavior: 'smooth' });
   }));
+  $('clr2').addEventListener('click', () => {
+    pane2Cleared = !pane2Cleared;
+    $('clr2').textContent = pane2Cleared ? 'show pane 2' : 'clr pane 2';
+    $('clr2').classList.toggle('on', pane2Cleared);
+    render();
+  });
   initRefModal();
   $('prev').addEventListener('click', () => step(-1));
   $('next').addEventListener('click', () => step(1));
