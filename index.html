@@ -25,6 +25,9 @@
   .v { margin: 0 0 8px; }
   .v sup { color: var(--accent); font: 600 12px system-ui, sans-serif; margin-right: 4px; }
   .v.hl { background: rgba(217,160,102,.25); border-radius: 4px; }
+  .v.has { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; cursor: pointer; }
+  .v.cov { text-decoration: underline dotted; text-decoration-color: var(--accent); text-underline-offset: 3px; cursor: pointer; }
+  .c.flash { background: rgba(217,160,102,.25); border-radius: 4px; }
   .c { margin: 0 0 16px; white-space: pre-wrap; }
   .c .ref { display: block; color: var(--accent); font: 600 13px system-ui, sans-serif; margin-bottom: 2px; }
   .msg { color: var(--muted); font-family: system-ui, sans-serif; }
@@ -165,6 +168,30 @@ function renderCommentary(json) {
     els.pane2.appendChild(div);
   });
   els.pane2.scrollTop = 0;
+  markVerses(items.map((item) => item.number));
+}
+
+// Underline verses in pane 1 that have commentary: solid = own entry, dotted = covered by an earlier section.
+function markVerses(starts) {
+  const sorted = [...new Set(starts)].sort((a, b) => a - b);
+  els.pane1.querySelectorAll('.v').forEach((el) => {
+    const v = +el.dataset.v;
+    let owner = null;
+    for (const n of sorted) { if (n <= v) owner = n; else break; }
+    if (owner === null) return;
+    el.dataset.c = owner;
+    el.classList.add(owner === v ? 'has' : 'cov');
+  });
+}
+
+function jumpToCommentary(verse) {
+  const target = els.pane2.querySelector(`.c[data-v="${verse}"]`);
+  if (!target) return;
+  const top = target.getBoundingClientRect().top - els.pane2.getBoundingClientRect().top + els.pane2.scrollTop - 8;
+  els.pane2.scrollTo({ top, behavior: 'smooth' });
+  els.pane2.querySelectorAll('.c.flash').forEach((el) => el.classList.remove('flash'));
+  target.classList.add('flash');
+  setTimeout(() => target.classList.remove('flash'), 1500);
 }
 
 function highlight(verse) {
@@ -251,6 +278,10 @@ function init() {
   els.chapter.addEventListener('change', () => go(state.book, +els.chapter.value));
   els.version.addEventListener('change', () => { state.version = els.version.value; els.chapter.replaceChildren(); render(); });
   els.source.addEventListener('change', () => { state.source = els.source.value; state.sourceIsManual = true; render(); });
+  els.pane1.addEventListener('click', (e) => {
+    const verse = e.target.closest('.v[data-c]');
+    if (verse) jumpToCommentary(verse.dataset.c);
+  });
   $('prev').addEventListener('click', () => step(-1));
   $('next').addEventListener('click', () => step(1));
   document.addEventListener('keydown', (e) => {
