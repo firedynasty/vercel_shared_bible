@@ -1,5 +1,25 @@
 # vercel_shared_bible
 
-Two-pane Bible reader. Pane 1: Berean Standard Bible (BSB) with headings and paragraphs. Pane 2: commentary (John Gill default for the Old Testament, Matthew Henry default for the New Testament). Both are fetched live from the HelloAO API (https://bible.helloao.org).
+Static multi-page site (no build step, no server). Deployed as the Vercel project
+`commentary` -> https://commentary-rust.vercel.app
 
-Static site: one `index.html`, no build step, no server.
+| Page | URL | What it is |
+| --- | --- | --- |
+| `index.html` | `/` | Landing menu. Opens nothing by itself - you pick a page. |
+| `commentary.html` | `/commentary` | Two panes: Berean Standard Bible beside commentary (John Gill for the OT, Matthew Henry for the NT), both fetched live from the HelloAO API (https://bible.helloao.org). |
+| `chinese.html` | `/chinese` | Genesis in Chinese as tappable word chips - dwell 700 ms or tap for pinyin + gloss, with a WEB English reveal. Reads `chinese_breakdown.json` and `genesis_web.json` from this folder. |
+
+`cleanUrls` in `vercel.json` is what serves `/commentary` and `/chinese` without the
+`.html`; the old `/commentary.html` style URLs still work and redirect to the short form.
+
+## Adding a page
+
+1. Drop `page2.html` in this folder (plain HTML - include `<!DOCTYPE html>`, charset and
+   viewport yourself; each page is standalone).
+2. Add one line to the `PAGES` list near the bottom of `index.html`:
+
+   ```js
+   { href: 'page2.html', name: 'Page 2', tint: '#4f46e5', blurb: 'What it does.' }
+   ```
+
+3. Give the page an `<a class="home" href="/">` link so there is a way back.

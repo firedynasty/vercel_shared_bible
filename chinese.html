@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Genesis Touch Reader</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600&family=Spectral:ital,wght@0,400;0,600;1,400&family=Noto+Sans:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column — slim sticky header, verse card of tappable word chips, controls docked under the thumb */
+:root {
+  --paper: #eef2ee;
+  --raised: #f9fbf8;
+  --ink: #16211f;
+  --ink-soft: #5c6c68;
+  --jade: #2d7a65;
+  --cinnabar: #bd4329;
+  --rule: #d2dbd5;
+  --shadow: 0 1px 2px rgba(22,33,31,.06), 0 8px 24px -12px rgba(22,33,31,.18);
+
+  --zh: "Noto Serif TC", "Songti TC", "PingFang TC", serif;
+  --en: "Spectral", Georgia, serif;
+  --ui: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1716;
+    --raised: #17221f;
+    --ink: #e5ebe7;
+    --ink-soft: #94a49e;
+    --jade: #6fc0a6;
+    --cinnabar: #e4705a;
+    --rule: #2a3733;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1716;
+  --raised: #17221f;
+  --ink: #e5ebe7;
+  --ink-soft: #94a49e;
+  --jade: #6fc0a6;
+  --cinnabar: #e4705a;
+  --rule: #2a3733;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--en);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--raised);
+}
+
+.wrap {
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+/* ── header ─────────────────────────────────────────── */
+header {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 9;
+  background: var(--raised);
+  border-bottom: 1px solid var(--rule);
+}
+.hbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-block: 10px;
+}
+.brand { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-right: auto; }
+.brand .cn { font-family: var(--zh); font-size: 1.3rem; font-weight: 600; letter-spacing: .04em; }
+.brand .en { font-family: var(--ui); font-size: .7rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-soft); }
+
+select, button { font-family: var(--ui); color: inherit; }
+select {
+  appearance: none;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 9px 30px 9px 12px;
+  font-size: .9rem;
+  min-height: 44px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 17px) calc(50% + 1px), calc(100% - 12px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.sel-group { display: flex; align-items: center; gap: 6px; font-family: var(--ui); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+
+.btn {
+  position: relative;
+  appearance: none;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: .85rem;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.btn:active { transform: translateY(1px); }
+.btn[aria-pressed="true"] { background: var(--jade); border-color: var(--jade); color: var(--raised); }
+.btn.ghost { background: transparent; }
+.btn .n { font-variant-numeric: tabular-nums; opacity: .7; }
+:focus-visible { outline: 2px solid var(--cinnabar); outline-offset: 2px; }
+
+/* ── verse card ─────────────────────────────────────── */
+main { padding-block: 20px 28px; }
+.card {
+  background: var(--raised);
+  border: 1px solid var(--rule);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 22px 18px 20px;
+  margin-bottom: 22px;
+}
+.ref {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+.ref .big { font-family: var(--zh); font-size: 1.05rem; font-weight: 600; }
+.ref .pos { font-family: var(--ui); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); font-variant-numeric: tabular-nums; margin-left: auto; }
+
+/* word chips */
+.words { display: flex; flex-wrap: wrap; gap: 20px 16px; }
+.chip {
+  position: relative;
+  appearance: none;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 8px 12px 9px;
+  min-height: 58px;
+  min-width: 48px;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+  transition: background-color .14s ease, border-color .14s ease;
+}
+.chip .zh { font-family: var(--zh); font-size: 1.85rem; line-height: 1.15; letter-spacing: .02em; }
+.chip .py, .chip .gl { display: none; font-family: var(--ui); line-height: 1.25; }
+.chip .py { font-size: .78rem; color: var(--jade); }
+.chip .gl { font-family: var(--en); font-size: .82rem; font-style: italic; color: var(--ink-soft); max-width: 15ch; }
+.chip.show-py .py { display: block; order: -1; }
+.chip.open { background: var(--raised); border-color: var(--jade); box-shadow: inset 0 0 0 1px var(--jade); }
+.chip.open .py, .chip.open .gl { display: block; }
+.chip.open .py { order: -1; }
+.chip.saved { border-color: var(--cinnabar); }
+.chip.saved::after {
+  content: "✦";
+  font-size: .62rem;
+  color: var(--cinnabar);
+  line-height: 1;
+}
+@media (hover: hover) {
+  .chip:hover { border-color: var(--jade); }
+  /* resting the mouse fills this bar; when it completes, the control fires */
+  .dwell::before {
+    content: "";
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 5px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--jade);
+    transform-origin: left center;
+    animation: dwell .7s linear forwards;
+    color: transparent;
+  }
+}
+@keyframes dwell { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.tally { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); margin-top: 14px; font-variant-numeric: tabular-nums; }
+
+/* sentence + gloss line */
+.sentence {
+  font-family: var(--zh);
+  font-size: 1.12rem;
+  line-height: 2;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink);
+}
+.glossline {
+  font-family: var(--en);
+  font-style: italic;
+  color: var(--ink-soft);
+  line-height: 1.6;
+  margin-top: 8px;
+  max-width: 62ch;
+}
+.tiny-label { font-family: var(--ui); font-size: .66rem; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); display: block; margin-bottom: 4px; }
+
+/* ── English reveal ─────────────────────────────────── */
+.reveal { margin-top: 20px; }
+.reveal-head {
+  position: relative;
+  appearance: none;
+  width: 100%;
+  background: transparent;
+  border: 1px dashed var(--rule);
+  border-radius: 14px;
+  min-height: 72px;
+  padding: 14px 16px;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  color: inherit;
+}
+.reveal-head .tiny-label { margin: 0; }
+.reveal-cta {
+  margin-left: auto;
+  font-family: var(--ui);
+  font-size: .86rem;
+  color: var(--jade);
+  white-space: nowrap;
+}
+@media (hover: hover) { .reveal-head:hover { border-color: var(--jade); } }
+.reveal[data-open="true"] .reveal-head {
+  border-style: solid;
+  border-color: var(--rule);
+  min-height: 48px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: transparent;
+}
+.reveal-body {
+  border: 1px solid var(--rule);
+  border-top: 0;
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
+  padding: 4px 18px 20px;
+  font-family: var(--en);
+  font-size: 1.45rem;
+  line-height: 1.6;
+  letter-spacing: -.004em;
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+.reveal-body .vnum {
+  font-family: var(--ui);
+  font-size: .72rem;
+  color: var(--cinnabar);
+  vertical-align: .55em;
+  margin-right: .4em;
+  letter-spacing: .04em;
+}
+@media (max-width: 560px) { .reveal-body { font-size: 1.18rem; padding: 4px 14px 18px; } }
+
+/* ── control rows ───────────────────────────────────── */
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row + .row { margin-top: 14px; }
+.nav { display: flex; gap: 8px; }
+.nav .btn { flex: 1; min-width: 0; font-size: 1rem; }
+.hint { font-family: var(--ui); font-size: .76rem; color: var(--ink-soft); line-height: 1.55; margin-top: 14px; }
+.hint b { color: var(--ink); font-weight: 500; }
+
+/* ── saved drawer ───────────────────────────────────── */
+.drawer { margin-top: 16px; }
+.saved-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 12px; }
+.saved-list li {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--raised); border: 1px solid var(--rule);
+  border-radius: 12px; padding: 8px 10px;
+}
+.saved-list .zh { font-family: var(--zh); font-size: 1.4rem; }
+.saved-list .meta { min-width: 0; }
+.saved-list .py { font-family: var(--ui); font-size: .76rem; color: var(--jade); }
+.saved-list .gl { font-size: .9rem; font-style: italic; color: var(--ink-soft); }
+.saved-list .spacer { margin-left: auto; }
+.saved-list .btn { min-height: 40px; padding: 0 10px; }
+.empty { font-family: var(--ui); font-size: .82rem; color: var(--ink-soft); margin-top: 10px; }
+
+footer { border-top: 1px solid var(--rule); padding-block: 16px 24px; }
+footer p { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); line-height: 1.6; margin: 0; max-width: 60ch; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+  .dwell::before { animation: none; transform: scaleX(1); opacity: .45; }
+}
+@media (max-width: 420px) {
+  .chip .zh { font-size: 1.6rem; }
+  .brand .en { display: none; }
+}
+  a.home { flex: 0 0 auto; text-decoration: none; color: var(--ink-soft); font-family: var(--ui); font-size: 16px; line-height: 1; padding: 6px 9px; border: 1px solid var(--rule); border-radius: 8px; background: var(--raised); }
+  a.home:hover { color: var(--jade); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap hbar">
+    <a class="home" href="/" title="All pages" aria-label="All pages">&#9776;</a>
+    <div class="brand">
+      <span class="cn">創世記</span>
+      <span class="en">Genesis · tap to learn</span>
+    </div>
+    <label class="sel-group">章
+      <select id="chapSel" aria-label="Chapter"></select>
+    </label>
+    <label class="sel-group">節
+      <select id="verseSel" aria-label="Verse"></select>
+    </label>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card" id="card">
+    <div class="ref">
+      <span class="big" id="refCn">創世記</span>
+      <span class="pos" id="refPos"></span>
+    </div>
+    <div class="words" id="words"></div>
+    <p class="tally" id="tally"></p>
+    <div class="sentence" id="sentence"></div>
+
+    <div class="reveal" id="enWrap" data-open="false">
+      <button class="reveal-head" id="enToggle" type="button" aria-expanded="false" aria-controls="enBody" data-dwell="english">
+        <span class="tiny-label">English · World English Bible</span>
+        <span class="reveal-cta" id="enCta">Reveal</span>
+      </button>
+      <div class="reveal-body" id="enBody" hidden></div>
+    </div>
+
+    <div class="glossline" id="glossline" hidden></div>
+  </section>
+
+  <div class="row nav">
+    <button class="btn" id="prevBtn" type="button" data-dwell="nav">‹ 前節</button>
+    <button class="btn" id="nextBtn" type="button" data-dwell="nav">次節 ›</button>
+  </div>
+  <div class="row">
+    <button class="btn" id="revealBtn" type="button" aria-pressed="false">Reveal all</button>
+    <button class="btn" id="pyBtn" type="button" aria-pressed="false">Pinyin always</button>
+    <button class="btn" id="glossBtn" type="button" aria-pressed="false">Gloss line</button>
+  </div>
+  <div class="row">
+    <button class="btn" id="sayMan" type="button">🔊 普通話</button>
+    <button class="btn" id="sayCan" type="button">🔊 廣東話</button>
+    <button class="btn" id="speakTap" type="button" aria-pressed="true">Speak on tap</button>
+  </div>
+  <p class="hint" id="hint">
+    <b>Tap a word</b> to hear it and see its pinyin and meaning. <b>Press and hold</b> a word to keep it in your word list. Swipe the card left or right to move between verses. With a mouse, <b>rest the pointer for a moment</b> on a word, on the English strip, or on 前節 / 次節 — the green bar fills and it fires, no click needed.
+  </p>
+
+  <section class="drawer">
+    <div class="row">
+      <button class="btn ghost" id="savedBtn" type="button" aria-expanded="false">My words <span class="n" id="savedCount">(0)</span></button>
+      <button class="btn ghost" id="clearBtn" type="button" hidden>Clear list</button>
+    </div>
+    <ul class="saved-list" id="savedList" hidden></ul>
+    <p class="empty" id="savedEmpty" hidden>Nothing saved yet. Press and hold any word in the verse above.</p>
+  </section>
+</main>
+
+<footer class="wrap">
+  <p id="foot">Chinese Union Version (繁體) with word-by-word glosses for all 50 chapters of Genesis — 1,533 verses, 30,310 glossed words. The English under each word glosses that word; the full verse in English is the World English Bible, paired verse by verse.</p>
+</footer>
+
+<script>
+(function () {
+  var DATA_URL = 'chinese_breakdown.json';
+  var EN_URL = 'genesis_web.json';
+  var DWELL_MS = 700;
+  var BOOK = null;
+  var EN = null;              // WEB English, EN[chapter-1][verseIndex]
+  var enError = '';
+  var chapters = [];
+  var st = {
+    ch: 1, vi: 0,
+    open: {},            // word index -> true
+    saved: [],           // {zh, pinyin, en}
+    revealAll: false,
+    pinyinAlways: false,
+    glossLine: false,
+    speakTap: true,
+    enShown: false       // English panel revealed, remembered across verses
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var els = {
+    chapSel: $('chapSel'), verseSel: $('verseSel'), refCn: $('refCn'), refPos: $('refPos'),
+    words: $('words'), tally: $('tally'), sentence: $('sentence'), glossline: $('glossline'),
+    card: $('card'), prev: $('prevBtn'), next: $('nextBtn'),
+    reveal: $('revealBtn'), py: $('pyBtn'), gloss: $('glossBtn'),
+    sayMan: $('sayMan'), sayCan: $('sayCan'), speakTap: $('speakTap'),
+    savedBtn: $('savedBtn'), savedCount: $('savedCount'), savedList: $('savedList'),
+    savedEmpty: $('savedEmpty'), clearBtn: $('clearBtn'), hint: $('hint'),
+    enWrap: $('enWrap'), enToggle: $('enToggle'), enCta: $('enCta'), enBody: $('enBody')
+  };
+
+  /* ---------- storage (best effort) ---------- */
+  function load(key, fallback) {
+    try { var v = localStorage.getItem('gtr-' + key); return v === null ? fallback : JSON.parse(v); }
+    catch (e) { return fallback; }
+  }
+  function save(key, val) {
+    try { localStorage.setItem('gtr-' + key, JSON.stringify(val)); } catch (e) {}
+  }
+
+  /* ---------- speech ---------- */
+  var voices = [];
+  function refreshVoices() {
+    try { voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : []; } catch (e) { voices = []; }
+  }
+  if (window.speechSynthesis) {
+    refreshVoices();
+    window.speechSynthesis.onvoiceschanged = refreshVoices;
+  }
+  function pickVoice(lang) {
+    var base = lang.slice(0, 2);
+    var exact = null, loose = null;
+    for (var i = 0; i < voices.length; i++) {
+      var vl = (voices[i].lang || '').replace('_', '-');
+      if (vl.toLowerCase() === lang.toLowerCase()) { exact = voices[i]; break; }
+      if (!loose && vl.toLowerCase().indexOf(base) === 0) loose = voices[i];
+    }
+    return exact || loose;
+  }
+  function speak(text, lang, rate) {
+    if (!text || !window.speechSynthesis) return false;
+    try {
+      window.speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = lang;
+      u.rate = rate || 0.8;
+      var v = pickVoice(lang);
+      if (v) u.voice = v;
+      setTimeout(function () { window.speechSynthesis.speak(u); }, 40);
+      return true;
+    } catch (e) { return false; }
+  }
+  function noteNoVoice(lang) {
+    refreshVoices();
+    if (voices.length && !pickVoice(lang)) {
+      els.hint.innerHTML = 'This device has no ' + (lang === 'zh-HK' ? 'Cantonese' : 'Mandarin') +
+        ' voice installed, so the audio stays silent. On iPad: Settings → Accessibility → Spoken Content → Voices → Chinese. Tapping a word still shows its pinyin and meaning.';
+    }
+  }
+
+  /* ---------- rendering ---------- */
+  function verse() {
+    if (!BOOK) return null;          // the English file can arrive first; BOOK is not loaded yet
+    var c = BOOK[String(st.ch)] || [];
+    return c[st.vi] || null;
+  }
+
+  function fillChapterSel() {
+    var html = '';
+    for (var i = 0; i < chapters.length; i++) {
+      html += '<option value="' + chapters[i] + '">' + chapters[i] + '</option>';
+    }
+    els.chapSel.innerHTML = html;
+    els.chapSel.value = String(st.ch);
+  }
+
+  function fillVerseSel() {
+    var c = BOOK[String(st.ch)] || [];
+    var html = '';
+    for (var i = 0; i < c.length; i++) {
+      html += '<option value="' + i + '">' + (c[i].number || (i + 1)) + '</option>';
+    }
+    els.verseSel.innerHTML = html;
+    els.verseSel.value = String(st.vi);
+  }
+
+  function savedKey(w) { return w.zh + '|' + (w.pinyin || ''); }
+  function isSaved(w) {
+    for (var i = 0; i < st.saved.length; i++) if (savedKey(st.saved[i]) === savedKey(w)) return true;
+    return false;
+  }
+
+  function render() {
+    var v = verse();
+    if (!v) return;
+    var c = BOOK[String(st.ch)];
+
+    els.refCn.textContent = '創世記 ' + st.ch + ':' + (v.number || st.vi + 1);
+    els.refPos.textContent = 'verse ' + (st.vi + 1) + ' of ' + c.length + ' · chapter ' + st.ch + ' of 50';
+
+    els.words.innerHTML = '';
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < v.words.length; i++) {
+      var w = v.words[i];
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      if (st.pinyinAlways) b.className += ' show-py';
+      if (st.revealAll || st.open[i]) b.className += ' open';
+      if (isSaved(w)) b.className += ' saved';
+      b.dataset.i = String(i);
+      b.dataset.dwell = 'word';
+      b.setAttribute('aria-label', w.zh + ', ' + w.pinyin + ', ' + w.en);
+
+      var zh = document.createElement('span'); zh.className = 'zh'; zh.textContent = w.zh;
+      var py = document.createElement('span'); py.className = 'py'; py.textContent = w.pinyin;
+      var gl = document.createElement('span'); gl.className = 'gl'; gl.textContent = w.en;
+      b.appendChild(py); b.appendChild(zh); b.appendChild(gl);
+      frag.appendChild(b);
+    }
+    els.words.appendChild(frag);
+
+    cancelDwell();
+
+    var opened = st.revealAll ? v.words.length : Object.keys(st.open).length;
+    els.tally.textContent = opened + ' of ' + v.words.length + ' words opened in this verse';
+
+    els.sentence.textContent = v.sentence;
+    renderEnglish();
+
+    var line = v.words.map(function (w) { return w.en; }).join(' · ');
+    els.glossline.innerHTML = '<span class="tiny-label">word-by-word gloss</span>' + line;
+    els.glossline.hidden = !st.glossLine;
+
+    els.verseSel.value = String(st.vi);
+    els.chapSel.value = String(st.ch);
+    save('pos', { ch: st.ch, vi: st.vi });
+  }
+
+  function englishFor() {
+    if (!EN) return null;
+    var c = EN[st.ch - 1];
+    if (!c) return null;
+    var t = c[st.vi];
+    return (t === undefined || t === null) ? null : String(t);
+  }
+
+  function renderEnglish() {
+    var v = verse();
+    var text = englishFor();
+    els.enWrap.dataset.open = st.enShown ? 'true' : 'false';
+    els.enToggle.setAttribute('aria-expanded', st.enShown ? 'true' : 'false');
+    els.enBody.hidden = !st.enShown;
+
+    if (!st.enShown) {
+      els.enCta.textContent = text ? 'Reveal' : (enError ? 'unavailable' : 'Reveal');
+      return;
+    }
+    els.enCta.textContent = 'Hide';
+    els.enBody.innerHTML = '';
+    if (text) {
+      var num = document.createElement('span');
+      num.className = 'vnum';
+      num.textContent = st.ch + ':' + ((v && v.number) || st.vi + 1);
+      els.enBody.appendChild(num);
+      els.enBody.appendChild(document.createTextNode(text));
+    } else {
+      els.enBody.textContent = enError
+        ? 'English text did not load (' + enError + '). genesis_web.json has to sit in the same folder as this page.'
+        : 'Loading English…';
+    }
+  }
+
+  function toggleEnglish() {
+    st.enShown = !st.enShown;
+    save('enShown', st.enShown);
+    renderEnglish();
+  }
+
+  function renderSaved() {
+    els.savedCount.textContent = '(' + st.saved.length + ')';
+    var open = els.savedBtn.getAttribute('aria-expanded') === 'true';
+    els.clearBtn.hidden = !(open && st.saved.length);
+    els.savedEmpty.hidden = !(open && !st.saved.length);
+    els.savedList.hidden = !(open && st.saved.length);
+    if (!open || !st.saved.length) return;
+
+    els.savedList.innerHTML = '';
+    for (var i = 0; i < st.saved.length; i++) {
+      var w = st.saved[i];
+      var li = document.createElement('li');
+      li.innerHTML =
+        '<span class="zh"></span>' +
+        '<span class="meta"><span class="py"></span><br><span class="gl"></span></span>' +
+        '<span class="spacer"></span>' +
+        '<button class="btn ghost say" type="button">🔊</button>' +
+        '<button class="btn ghost drop" type="button">✕</button>';
+      li.querySelector('.zh').textContent = w.zh;
+      li.querySelector('.py').textContent = w.pinyin;
+      li.querySelector('.gl').textContent = w.en;
+      li.querySelector('.say').dataset.i = String(i);
+      li.querySelector('.drop').dataset.i = String(i);
+      els.savedList.appendChild(li);
+    }
+  }
+
+  function goVerse(delta) {
+    var c = BOOK[String(st.ch)] || [];
+    var next = st.vi + delta;
+    if (next < 0) {
+      if (st.ch > 1) { st.ch--; st.vi = (BOOK[String(st.ch)] || []).length - 1; } else return;
+    } else if (next >= c.length) {
+      if (st.ch < 50) { st.ch++; st.vi = 0; } else return;
+    } else {
+      st.vi = next;
+    }
+    st.open = {};
+    fillVerseSel();
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  /* ---------- word interaction: tap = open + speak, hold = save ---------- */
+  var holdTimer = null, held = false;
+
+  function chipFrom(target) {
+    var el = target;
+    while (el && el !== els.words) {
+      if (el.classList && el.classList.contains('chip')) return el;
+      el = el.parentNode;
+    }
+    return null;
+  }
+
+  function toggleWord(chip) {
+    var i = Number(chip.dataset.i);
+    var v = verse();
+    if (!v) return;
+    var w = v.words[i];
+    if (st.revealAll) {
+      // in reveal-all mode a tap just speaks the word
+      if (st.speakTap) speak(w.zh, 'zh-CN', 0.75);
+      return;
+    }
+    if (st.open[i]) {
+      delete st.open[i];
+      chip.classList.remove('open');
+    } else {
+      st.open[i] = true;
+      chip.classList.add('open');
+      if (st.speakTap) speak(w.zh, 'zh-CN', 0.75);
+    }
+    var opened = Object.keys(st.open).length;
+    els.tally.textContent = opened + ' of ' + v.words.length + ' words opened in this verse';
+  }
+
+  // open-only version, used by mouse dwell so resting the pointer never closes a word
+  function openWord(chip) {
+    var i = Number(chip.dataset.i);
+    var v = verse();
+    if (!v) return;
+    var w = v.words[i];
+    var already = st.revealAll || st.open[i];
+    if (!already) {
+      st.open[i] = true;
+      chip.classList.add('open');
+      els.tally.textContent = Object.keys(st.open).length + ' of ' + v.words.length + ' words opened in this verse';
+    }
+    if (st.speakTap) speak(w.zh, 'zh-CN', 0.75);
+  }
+
+  /* ---------- mouse dwell: rest the pointer on any [data-dwell] control and it fires ---------- */
+  var canHover = false;
+  try { canHover = window.matchMedia('(hover: hover)').matches; } catch (e) {}
+  var dwellTimer = null, dwellEl = null, dwellFired = null, dwellFiredAt = 0;
+
+  function dwellFrom(target) {
+    var el = target;
+    while (el && el !== document.body) {
+      if (el.dataset && el.dataset.dwell) return el;
+      el = el.parentNode;
+    }
+    return null;
+  }
+
+  // true when this element's own click was already delivered by a dwell a moment ago
+  function swallowDwell(el) {
+    if (dwellFired === el && Date.now() - dwellFiredAt < 900) { dwellFired = null; return true; }
+    return false;
+  }
+
+  function cancelDwell() {
+    clearTimeout(dwellTimer);
+    dwellTimer = null;
+    if (dwellEl) dwellEl.classList.remove('dwell');
+    dwellEl = null;
+  }
+
+  function startDwell(el) {
+    cancelDwell();
+    dwellEl = el;
+    el.classList.add('dwell');
+    dwellTimer = setTimeout(function () {
+      if (dwellEl !== el) return;
+      el.classList.remove('dwell');
+      if (el.dataset.dwell === 'word') {
+        openWord(el);       // dwell only opens a word, it never closes one
+      } else {
+        el.click();         // nav and the English strip reuse their own click handlers
+      }
+      // marked afterwards, so the click just dispatched is not the one we swallow
+      dwellFired = el;
+      dwellFiredAt = Date.now();
+    }, DWELL_MS);
+  }
+
+  if (canHover) {
+    document.addEventListener('pointerover', function (e) {
+      if (e.pointerType && e.pointerType !== 'mouse') return;
+      var el = dwellFrom(e.target);
+      if (!el || el === dwellEl || el.disabled) return;
+      startDwell(el);
+    });
+    document.addEventListener('pointerout', function (e) {
+      if (e.pointerType && e.pointerType !== 'mouse') return;
+      var el = dwellFrom(e.target);
+      if (!el || el !== dwellEl) return;
+      if (e.relatedTarget && el.contains(e.relatedTarget)) return;
+      cancelDwell();
+    });
+    document.addEventListener('pointerdown', cancelDwell);
+    window.addEventListener('blur', cancelDwell);
+  }
+
+  function saveWord(chip) {
+    var i = Number(chip.dataset.i);
+    var v = verse();
+    if (!v) return;
+    var w = v.words[i];
+    var entry = { zh: w.zh, pinyin: w.pinyin, en: w.en };
+    if (isSaved(entry)) {
+      st.saved = st.saved.filter(function (x) { return savedKey(x) !== savedKey(entry); });
+      chip.classList.remove('saved');
+    } else {
+      st.saved.push(entry);
+      chip.classList.add('saved');
+      chip.classList.add('open');
+      st.open[i] = true;
+    }
+    save('saved', st.saved);
+    renderSaved();
+  }
+
+  els.words.addEventListener('click', function (e) {
+    var chip = chipFrom(e.target);
+    if (!chip) return;
+    if (held) { held = false; return; }
+    if (swallowDwell(chip)) return;
+    toggleWord(chip);
+  });
+  els.words.addEventListener('pointerdown', function (e) {
+    var chip = chipFrom(e.target);
+    if (!chip) return;
+    held = false;
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(function () { held = true; saveWord(chip); }, 480);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) {
+    els.words.addEventListener(ev, function () { clearTimeout(holdTimer); });
+  });
+  els.words.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+  /* ---------- swipe between verses ---------- */
+  var sx = 0, sy = 0, tracking = false;
+  els.card.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 1) { tracking = false; return; }
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY; tracking = true;
+  }, { passive: true });
+  els.card.addEventListener('touchend', function (e) {
+    if (!tracking) return;
+    tracking = false;
+    var t = e.changedTouches[0];
+    var dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.8) goVerse(dx < 0 ? 1 : -1);
+  }, { passive: true });
+
+  /* ---------- controls ---------- */
+  els.prev.addEventListener('click', function () { if (swallowDwell(els.prev)) return; goVerse(-1); });
+  els.next.addEventListener('click', function () { if (swallowDwell(els.next)) return; goVerse(1); });
+  els.enToggle.addEventListener('click', function () { if (swallowDwell(els.enToggle)) return; toggleEnglish(); });
+
+  els.chapSel.addEventListener('change', function () {
+    st.ch = Number(els.chapSel.value); st.vi = 0; st.open = {};
+    fillVerseSel(); render();
+  });
+  els.verseSel.addEventListener('change', function () {
+    st.vi = Number(els.verseSel.value); st.open = {}; render();
+  });
+
+  function toggleBtn(btn, key, label) {
+    btn.addEventListener('click', function () {
+      st[key] = !st[key];
+      btn.setAttribute('aria-pressed', st[key] ? 'true' : 'false');
+      if (label) btn.textContent = st[key] ? label[1] : label[0];
+      save(key, st[key]);
+      render();
+    });
+  }
+  toggleBtn(els.reveal, 'revealAll', ['Reveal all', 'Hide all']);
+  toggleBtn(els.py, 'pinyinAlways');
+  toggleBtn(els.gloss, 'glossLine');
+
+  els.speakTap.addEventListener('click', function () {
+    st.speakTap = !st.speakTap;
+    els.speakTap.setAttribute('aria-pressed', st.speakTap ? 'true' : 'false');
+    save('speakTap', st.speakTap);
+  });
+
+  els.sayMan.addEventListener('click', function () {
+    var v = verse(); if (!v) return;
+    speak(v.sentence, 'zh-CN', 0.72); noteNoVoice('zh-CN');
+  });
+  els.sayCan.addEventListener('click', function () {
+    var v = verse(); if (!v) return;
+    speak(v.sentence, 'zh-HK', 0.72); noteNoVoice('zh-HK');
+  });
+
+  els.savedBtn.addEventListener('click', function () {
+    var open = els.savedBtn.getAttribute('aria-expanded') === 'true';
+    els.savedBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
+    renderSaved();
+  });
+  els.clearBtn.addEventListener('click', function () {
+    st.saved = []; save('saved', st.saved); renderSaved(); render();
+  });
+  els.savedList.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b) return;
+    var i = Number(b.dataset.i);
+    if (b.classList.contains('say')) { speak(st.saved[i].zh, 'zh-CN', 0.75); return; }
+    if (b.classList.contains('drop')) {
+      st.saved.splice(i, 1); save('saved', st.saved); renderSaved(); render();
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.target && /^(SELECT|INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowRight') { e.preventDefault(); goVerse(1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); goVerse(-1); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); if (st.ch < 50) { st.ch++; st.vi = 0; st.open = {}; fillVerseSel(); render(); } }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (st.ch > 1) { st.ch--; st.vi = 0; st.open = {}; fillVerseSel(); render(); } }
+    else if (e.key === '/') { e.preventDefault(); var v = verse(); if (v) speak(v.sentence, 'zh-CN', 0.72); }
+  });
+
+  /* ---------- boot ---------- */
+  st.saved = load('saved', []) || [];
+  st.revealAll = !!load('revealAll', false);
+  st.pinyinAlways = !!load('pinyinAlways', false);
+  st.glossLine = !!load('glossLine', false);
+  var sp = load('speakTap', true); st.speakTap = sp === null ? true : !!sp;
+  st.enShown = !!load('enShown', false);
+
+  els.reveal.setAttribute('aria-pressed', st.revealAll ? 'true' : 'false');
+  els.reveal.textContent = st.revealAll ? 'Hide all' : 'Reveal all';
+  els.py.setAttribute('aria-pressed', st.pinyinAlways ? 'true' : 'false');
+  els.gloss.setAttribute('aria-pressed', st.glossLine ? 'true' : 'false');
+  els.speakTap.setAttribute('aria-pressed', st.speakTap ? 'true' : 'false');
+
+  els.refPos.textContent = 'loading…';
+
+  fetch(DATA_URL)
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function (json) {
+      BOOK = json.Genesis || json.genesis;
+      if (!BOOK) throw new Error('no Genesis in data file');
+      chapters = Object.keys(BOOK).map(Number).sort(function (a, b) { return a - b; });
+      var pos = load('pos', null);
+      if (pos && BOOK[String(pos.ch)] && BOOK[String(pos.ch)][pos.vi]) { st.ch = pos.ch; st.vi = pos.vi; }
+      fillChapterSel();
+      fillVerseSel();
+      render();
+      renderSaved();
+    })
+    .catch(function (err) {
+      els.refPos.textContent = '';
+      els.words.innerHTML = '';
+      els.sentence.textContent = '';
+      els.tally.textContent = '';
+      els.hint.innerHTML = 'Could not load <b>chinese_breakdown.json</b> (' + String(err.message) +
+        '). The data file has to sit in the same folder as this page.';
+    });
+
+  // English loads in parallel — the page is usable before it arrives
+  fetch(EN_URL)
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function (json) {
+      EN = json.chapters || json;
+      if (!EN || !EN.length) throw new Error('no chapters in the English file');
+      enError = '';
+    })
+    .catch(function (err) {
+      EN = null;
+      enError = String(err.message);
+    })
+    .then(function () { renderEnglish(); });
+})();
+</script>
+
+</body>
+</html>
