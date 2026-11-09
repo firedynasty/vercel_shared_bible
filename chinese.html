@@ -207,6 +207,7 @@ main { padding-block: 20px 28px; }
 }
 @keyframes dwell { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 
+.card-row { margin-top: 14px; }
 .tally { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); margin-top: 14px; font-variant-numeric: tabular-nums; }
 
 /* sentence + gloss line */
@@ -352,6 +353,9 @@ footer p { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); li
       <span class="pos" id="refPos"></span>
     </div>
     <div class="words" id="words"></div>
+    <div class="row card-row">
+      <button class="btn" id="revealBtn" type="button" aria-pressed="false">Reveal all</button>
+    </div>
     <p class="tally" id="tally"></p>
     <div class="sentence" id="sentence"></div>
 
@@ -371,7 +375,6 @@ footer p { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); li
     <button class="btn" id="nextBtn" type="button" data-dwell="nav">次節 ›</button>
   </div>
   <div class="row">
-    <button class="btn" id="revealBtn" type="button" aria-pressed="false">Reveal all</button>
     <button class="btn" id="pyBtn" type="button" aria-pressed="false">Pinyin always</button>
     <button class="btn" id="glossBtn" type="button" aria-pressed="false">Gloss line</button>
   </div>
@@ -671,26 +674,20 @@ footer p { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); li
     return null;
   }
 
+  // A tap always reveals the word and speaks it in Mandarin; it never closes one again.
+  // Use Hide all to put them back.
   function toggleWord(chip) {
     var i = Number(chip.dataset.i);
     var v = verse();
     if (!v) return;
     var w = v.words[i];
-    if (st.revealAll) {
-      // in reveal-all mode a tap just speaks the word
-      if (st.speakTap) speak(w.zh, 'zh-CN', 0.75);
-      return;
-    }
-    if (st.open[i]) {
-      delete st.open[i];
-      chip.classList.remove('open');
-    } else {
+    if (!st.revealAll && !st.open[i]) {
       st.open[i] = true;
       chip.classList.add('open');
-      if (st.speakTap) speak(w.zh, 'zh-CN', 0.75);
+      var opened = Object.keys(st.open).length;
+      els.tally.textContent = opened + ' of ' + v.words.length + ' words opened in this verse';
     }
-    var opened = Object.keys(st.open).length;
-    els.tally.textContent = opened + ' of ' + v.words.length + ' words opened in this verse';
+    if (st.speakTap) speak(w.zh, 'zh-CN', 0.75);
   }
 
   // open-only version, used by mouse dwell so resting the pointer never closes a word
