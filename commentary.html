@@ -555,9 +555,9 @@ function init() {
     if (pane2Cleared) {
       // the number is the way back: restore pane 2 and land on this verse. Pane 1 is
       // left exactly where it is — the verse is already under the reader's eye.
-      const owner = v.dataset.c, num = v.dataset.v;
+      const owner = v.dataset.c, vnum = v.dataset.v;   // not the sup element above
       setPane2Cleared(false).then(() => {
-        const again = els.pane1.querySelector(`.v[data-v="${num}"]`);
+        const again = els.pane1.querySelector(`.v[data-v="${vnum}"]`);
         if (again) {
           els.pane1.querySelectorAll('.v.hl').forEach((el) => el.classList.remove('hl'));
           again.classList.add('hl');
