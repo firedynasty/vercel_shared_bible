@@ -441,6 +441,7 @@ footer p { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); li
 
   /* ---------- speech ---------- */
   var voices = [];
+  var lastVoice = '';
   function refreshVoices() {
     try { voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : []; } catch (e) { voices = []; }
   }
@@ -448,15 +449,31 @@ footer p { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); li
     refreshVoices();
     window.speechSynthesis.onvoiceschanged = refreshVoices;
   }
+  // Rank voices by quality, not by the order the OS hands them over: Chrome's bundled
+  // Google voices first, then Apple's Enhanced/Premium downloads, and only then the
+  // default system voice (on a Mac that is Ting-Ting, which is the one that sounds bad).
+  function voiceRank(v) {
+    var n = (v.name || '');
+    if (/Google/i.test(n)) return 0;
+    if (/Enhanced|Premium|Neural|Natural/i.test(n)) return 1;
+    if (/Siri/i.test(n)) return 2;
+    return 3;
+  }
   function pickVoice(lang) {
-    var base = lang.slice(0, 2);
-    var exact = null, loose = null;
+    var want = lang.toLowerCase(), base = want.slice(0, 2);
+    var exact = [], loose = [];
     for (var i = 0; i < voices.length; i++) {
-      var vl = (voices[i].lang || '').replace('_', '-');
-      if (vl.toLowerCase() === lang.toLowerCase()) { exact = voices[i]; break; }
-      if (!loose && vl.toLowerCase().indexOf(base) === 0) loose = voices[i];
+      var vl = (voices[i].lang || '').replace('_', '-').toLowerCase();
+      if (vl === want) exact.push(voices[i]);
+      else if (vl.indexOf(base) === 0) loose.push(voices[i]);
     }
-    return exact || loose;
+    // zh-HK and zh-TW read Mandarin text acceptably, but never let a Cantonese
+    // request fall back to a Mandarin voice — the tones are simply wrong.
+    if (!exact.length && want === 'zh-hk') return null;
+    var pool = exact.length ? exact : loose;
+    if (!pool.length) return null;
+    pool.sort(function (a, b) { return voiceRank(a) - voiceRank(b); });
+    return pool[0];
   }
   function speak(text, lang, rate) {
     if (!text || !window.speechSynthesis) return false;
@@ -466,7 +483,8 @@ footer p { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); li
       u.lang = lang;
       u.rate = rate || 0.8;
       var v = pickVoice(lang);
-      if (v) u.voice = v;
+      if (v) { u.voice = v; u.lang = v.lang; }
+      lastVoice = v ? (v.name + ' · ' + v.lang) : '(device default)';
       setTimeout(function () { window.speechSynthesis.speak(u); }, 40);
       return true;
     } catch (e) { return false; }
