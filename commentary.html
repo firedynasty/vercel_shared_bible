@@ -206,6 +206,9 @@ const bibleCache = {};      // "BOOK/chapter" -> parsed json
 const commentaryCache = {}; // "source/BOOK/chapter" -> parsed json
 let renderToken = 0;
 let pane1Cleared = false;     // session-only: when true, pane 1 stays empty and no Bible text is rendered
+// where each pane was when it was emptied, so it comes back there and not at the top.
+// Keyed by what was on screen, so a chapter or source change does not restore a stale offset.
+const paneSpot = { 1: { key: '', top: 0 }, 2: { key: '', top: 0 } };
 let pane2Cleared = false;     // session-only: when true, pane 2 stays empty and no commentary is rendered
 let restoreScroll = null;     // [pane1, pane2] scrollTop saved last visit, applied once after the first render
 let pendingVerse = null;      // verse to highlight once a navigation finishes rendering
@@ -367,6 +370,9 @@ function markVerses(starts) {
 // Either pane can be emptied, by its button or by right-clicking the pane itself.
 // Both panes keep their columns either way, so line width never changes.
 function setPanesCleared(p1, p2) {
+  const k1 = state.book + ':' + state.chapter;
+  const k2 = state.source + '/' + k1;        // a different commentary is different content
+  const wasP1 = pane1Cleared, wasP2 = pane2Cleared;
   pane1Cleared = p1;
   pane2Cleared = p2;
   for (const [id, off, show, clear] of [['clr1', p1, 'show pane 1', 'clr pane 1'], ['clr2', p2, 'show pane 2', 'clr pane 2']]) {
@@ -374,10 +380,21 @@ function setPanesCleared(p1, p2) {
     btn.textContent = off ? show : clear;
     btn.classList.toggle('on', off);
   }
-  // Emptying a pane is not navigation: the other one keeps the reader's place.
+  // Emptying a pane is not navigation. The pane left on screen keeps its place,
+  // and the one being emptied has its place put aside for when it comes back.
   // (render() rebuilds both, and renderBible sends pane 1 back to the top.)
-  restoreScroll = [p1 ? 0 : els.pane1.scrollTop, p2 ? 0 : els.pane2.scrollTop];
+  restoreScroll = [spot(1, k1, p1, wasP1, els.pane1), spot(2, k2, p2, wasP2, els.pane2)];
   return render();
+}
+
+// One pane's scrollTop for the render that is about to run.
+function spot(n, key, clearing, wasCleared, pane) {
+  if (clearing) {
+    if (!wasCleared) paneSpot[n] = { key, top: pane.scrollTop };   // on the way out
+    return 0;
+  }
+  if (wasCleared) return paneSpot[n].key === key ? paneSpot[n].top : 0;   // on the way back
+  return pane.scrollTop;                                                  // untouched, stay put
 }
 
 function jumpToCommentary(verse) {
