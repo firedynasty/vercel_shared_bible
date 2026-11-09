@@ -381,7 +381,7 @@ footer p { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); li
     <button class="btn" id="speakTap" type="button" aria-pressed="true">Speak on tap</button>
   </div>
   <p class="hint" id="hint">
-    <b>Tap a word</b> to hear it and see its pinyin and meaning. <b>Press and hold</b> a word to keep it in your word list. Swipe the card left or right to move between verses. With a mouse, <b>rest the pointer for a moment</b> on a word, on the English strip, or on 前節 / 次節 — the green bar fills and it fires, no click needed.
+    <b>Tap a word</b> to hear it and see its pinyin and meaning. <b>Press and hold</b> a word to keep it in your word list. Swipe the card left or right to move between verses. With a mouse, <b>rest the pointer for a moment</b> on a word, on the English strip, or on 前節 / 次節 — the green bar fills and it fires, no click needed. <b>Right-click</b> a word for Cantonese, or anywhere else on the card for the whole verse in Cantonese.
   </p>
 
   <section class="drawer">
@@ -415,7 +415,7 @@ footer p { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); li
     pinyinAlways: false,
     glossLine: false,
     speakTap: true,
-    enShown: false       // English panel revealed, remembered across verses
+    enShown: true        // English panel revealed; starts open on every load
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -807,7 +807,19 @@ footer p { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); li
   ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) {
     els.words.addEventListener(ev, function () { clearTimeout(holdTimer); });
   });
-  els.words.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  els.card.addEventListener('contextmenu', function (e) {
+    e.preventDefault();                       // no browser menu; right-click is the Cantonese key
+    var v = verse();
+    if (!v) return;
+    var chip = chipFrom(e.target);
+    if (chip) {
+      var w = v.words[Number(chip.dataset.i)];
+      if (w) speak(w.zh, 'zh-HK', 0.75);
+    } else {
+      speak(v.sentence, 'zh-HK', 0.72);
+    }
+    noteNoVoice('zh-HK');
+  });
 
   /* ---------- swipe between verses ---------- */
   var sx = 0, sy = 0, tracking = false;
@@ -897,7 +909,7 @@ footer p { font-family: var(--ui); font-size: .74rem; color: var(--ink-soft); li
   st.pinyinAlways = !!load('pinyinAlways', false);
   st.glossLine = !!load('glossLine', false);
   var sp = load('speakTap', true); st.speakTap = sp === null ? true : !!sp;
-  st.enShown = !!load('enShown', false);
+  st.enShown = true;              // always open on load, whatever was saved last time
 
   els.reveal.setAttribute('aria-pressed', st.revealAll ? 'true' : 'false');
   els.reveal.textContent = st.revealAll ? 'Hide all' : 'Reveal all';
