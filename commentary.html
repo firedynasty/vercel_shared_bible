@@ -20,10 +20,10 @@
   button { cursor: pointer; }
   a.home { text-decoration: none; color: var(--fg); padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--pane); line-height: 1.4; }
   a.home:hover { color: var(--accent); }
-  main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+  main { flex: 1; display: grid; grid-template-columns: 1fr; min-height: 0; }   /* one pane on screen at a time */
   .pane { font-size: var(--fs); overflow-y: auto; padding: 16px 20px 60px; background: var(--pane); }
   .wrap { position: relative; display: flex; min-height: 0; min-width: 0; }
-  .wrap + .wrap { border-left: 1px solid var(--line); }
+  .wrap[hidden] { display: none; }   /* .wrap sets display:flex, which would beat the hidden attribute */
   .pane { flex: 1; min-width: 0; }
   .pgdn { position: absolute; right: 24px; bottom: 12px; width: 40px; height: 40px; padding: 0; border-radius: 50%; opacity: .85; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
   .pane h2 { margin: 0 0 12px; font: 600 15px system-ui, sans-serif; color: var(--accent); }
@@ -55,10 +55,6 @@
   .modal .err { color: #dc2626; font-size: 13px; min-height: 1.2em; margin: 6px 0; }
   .modal .recent { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
   .modal .row { display: flex; gap: 8px; justify-content: flex-end; }
-  @media (max-width: 760px) {
-    main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
-    .wrap + .wrap { border-left: 0; border-top: 1px solid var(--line); }
-  }
 </style>
 </head>
 <body>
@@ -73,15 +69,15 @@
   <button id="fontDown" aria-label="Smaller text" title="Smaller text">A&minus;</button>
   <button id="fontUp" aria-label="Larger text" title="Larger text">A+</button>
   <button id="theme" aria-label="Toggle light/dark mode" title="Toggle light/dark mode"></button>
-  <button id="clr2" class="clr" title="Empty pane 2 (e.g. so it does not interfere when you search the page). The underlined verse numbers stay live — click one to bring the commentary back at that verse.">clr pane 2</button>
+  <button id="clr2" class="clr on" title="Empty pane 2 (e.g. so it does not interfere when you search the page). The underlined verse numbers stay live — click one to bring the commentary back at that verse.">show pane 2</button>
   <label>Pane 2 <select id="source"></select></label>
 </header>
 <main>
-  <div class="wrap">
+  <div class="wrap" id="wrap1">
     <section class="pane" id="pane1"></section>
     <button class="pgdn" data-pane="pane1" aria-label="Page down in pane 1" title="Page down">&#9660;</button>
   </div>
-  <div class="wrap">
+  <div class="wrap" id="wrap2" hidden>
     <section class="pane" id="pane2"></section>
     <button class="pgdn" data-pane="pane2" aria-label="Page down in pane 2" title="Page down">&#9660;</button>
   </div>
@@ -198,13 +194,14 @@ function parseRef(input, currentBook) {
 }
 
 const $ = (id) => document.getElementById(id);
-const els = { book: $('book'), chapter: $('chapter'), source: $('source'), pane1: $('pane1'), pane2: $('pane2') };
+const els = { book: $('book'), chapter: $('chapter'), source: $('source'), pane1: $('pane1'), pane2: $('pane2'), wrap1: $('wrap1'), wrap2: $('wrap2') };
 
 const state = { book: 0, chapter: 1, source: 'john-gill', sourceIsManual: false };
 const bibleCache = {};      // "BOOK/chapter" -> parsed json
 const commentaryCache = {}; // "source/BOOK/chapter" -> parsed json
 let renderToken = 0;
-let pane2Cleared = false;     // session-only: when true, pane 2 stays empty and no commentary is fetched
+let pane2Cleared = true;      // session-only: when true the Bible is the pane on screen and no commentary is fetched
+let pane1Spot = { key: '', top: 0 };   // where the reader was in the Bible while the commentary has the window
 let restoreScroll = null;     // [pane1, pane2] scrollTop saved last visit, applied once after the first render
 let pendingVerse = null;      // verse to highlight once a navigation finishes rendering
 let recent = [];              // last visited { book, chapter }, newest first
@@ -362,15 +359,29 @@ function markVerses(starts) {
   });
 }
 
-function setPane2Cleared(cleared) {
+// Only one pane is ever on screen: the Bible, or the commentary in its place.
+function setPane2Cleared(cleared, verse) {
+  const key = state.book + ':' + state.chapter;
+  if (!cleared && !els.wrap1.hidden) pane1Spot = { key, top: els.pane1.scrollTop, verse: verse || null };
   pane2Cleared = cleared;
   const btn = $('clr2');
   btn.textContent = cleared ? 'show pane 2' : 'clr pane 2';
   btn.classList.toggle('on', cleared);
-  // Toggling pane 2 is not navigation: pane 1 keeps the reader's place. (render()
-  // rebuilds both panes, and renderBible sends pane 1 back to the top.)
-  restoreScroll = [els.pane1.scrollTop, cleared ? 0 : els.pane2.scrollTop];
-  return render();
+  els.wrap1.hidden = !cleared;
+  els.wrap2.hidden = cleared;
+  // Swapping panes is not navigation, so the Bible comes back where it was. A pane
+  // is display:none while hidden, so its scrollTop cannot be set until it is back.
+  const spot = cleared && pane1Spot.key === key ? pane1Spot : null;
+  restoreScroll = [spot ? spot.top : 0, 0];
+  const done = render();
+  // coming back to the Bible: the verse that was looked up is still marked
+  if (spot && spot.verse) done.then(() => {
+    const el = els.pane1.querySelector(`.v[data-v="${spot.verse}"]`);
+    if (!el) return;
+    els.pane1.querySelectorAll('.v.hl').forEach((e) => e.classList.remove('hl'));
+    el.classList.add('hl');
+  });
+  return done;
 }
 
 function jumpToCommentary(verse) {
@@ -553,17 +564,10 @@ function init() {
     if (!num) return;
     const v = num.closest('.v');
     if (pane2Cleared) {
-      // the number is the way back: restore pane 2 and land on this verse. Pane 1 is
-      // left exactly where it is — the verse is already under the reader's eye.
-      const owner = v.dataset.c, num = v.dataset.v;
-      setPane2Cleared(false).then(() => {
-        const again = els.pane1.querySelector(`.v[data-v="${num}"]`);
-        if (again) {
-          els.pane1.querySelectorAll('.v.hl').forEach((el) => el.classList.remove('hl'));
-          again.classList.add('hl');
-        }
-        jumpToCommentary(owner);
-      });
+      // the number is the way through: the commentary takes the window and lands on
+      // this verse; the Bible's place is kept for when it comes back
+      const owner = v.dataset.c;
+      setPane2Cleared(false, v.dataset.v).then(() => jumpToCommentary(owner));
       return;
     }
     jumpToCommentary(v.dataset.c);
