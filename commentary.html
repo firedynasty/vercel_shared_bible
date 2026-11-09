@@ -73,7 +73,7 @@
   <button id="fontDown" aria-label="Smaller text" title="Smaller text">A&minus;</button>
   <button id="fontUp" aria-label="Larger text" title="Larger text">A+</button>
   <button id="theme" aria-label="Toggle light/dark mode" title="Toggle light/dark mode"></button>
-  <button id="clr2" class="clr" title="Clear pane 2 commentary (e.g. so it does not interfere when you search the page)">clr pane 2</button>
+  <button id="clr2" class="clr" title="Empty pane 2 (e.g. so it does not interfere when you search the page). The underlined verse numbers stay live — click one to bring the commentary back at that verse.">clr pane 2</button>
   <label>Pane 2 <select id="source"></select></label>
 </header>
 <main>
@@ -305,6 +305,14 @@ function renderBible(json) {
   els.pane1.scrollTop = 0;
 }
 
+// Verse numbers that own a commentary entry with real text in it.
+function verseStarts(json) {
+  const chapter = json.chapter || {};
+  return (chapter.content || [])
+    .filter((x) => x.type === 'verse' && flatten(x.content))
+    .map((x) => x.number);
+}
+
 function renderCommentary(json) {
   els.pane2.replaceChildren();
   const h = document.createElement('h2');
@@ -338,7 +346,7 @@ function renderCommentary(json) {
     els.pane2.appendChild(div);
   });
   els.pane2.scrollTop = 0;
-  markVerses(items.map((item) => item.number));
+  markVerses(verseStarts(json));
 }
 
 // Underline the verse numbers in pane 1 that have commentary: solid = own entry, dotted = covered by an earlier section.
@@ -352,6 +360,14 @@ function markVerses(starts) {
     el.dataset.c = owner;
     el.classList.add(owner === v ? 'has' : 'cov');
   });
+}
+
+function setPane2Cleared(cleared) {
+  pane2Cleared = cleared;
+  const btn = $('clr2');
+  btn.textContent = cleared ? 'show pane 2' : 'clr pane 2';
+  btn.classList.toggle('on', cleared);
+  render();
 }
 
 function jumpToCommentary(verse) {
@@ -389,6 +405,13 @@ async function render() {
   }
   if (pane2Cleared) {
     els.pane2.replaceChildren();
+    // The text stays out of the DOM, but the marks stay on, so a verse number is
+    // still a live handle back into the commentary.
+    try {
+      const json = await loadCommentary(state.source, state.book, state.chapter);
+      if (token !== renderToken) return;
+      markVerses(verseStarts(json));
+    } catch (err) { /* no marks when the chapter will not load */ }
   } else {
     try {
       const json = await loadCommentary(state.source, state.book, state.chapter);
@@ -524,18 +547,21 @@ function init() {
   els.pane1.addEventListener('click', (e) => {
     const num = e.target.closest('.v[data-c] sup');
     // in poetry the number sits inside a .poem line, so go up to the verse span
-    if (num) jumpToCommentary(num.closest('.v').dataset.c);
+    if (!num) return;
+    const v = num.closest('.v');
+    if (pane2Cleared) {
+      // the number is the way back: restore pane 2 and land on this verse
+      pendingVerse = +v.dataset.v;
+      setPane2Cleared(false);
+      return;
+    }
+    jumpToCommentary(v.dataset.c);
   });
   document.querySelectorAll('.pgdn').forEach((btn) => btn.addEventListener('click', () => {
     const pane = $(btn.dataset.pane);
     pane.scrollBy({ top: pane.clientHeight - 48, behavior: 'smooth' });
   }));
-  $('clr2').addEventListener('click', () => {
-    pane2Cleared = !pane2Cleared;
-    $('clr2').textContent = pane2Cleared ? 'show pane 2' : 'clr pane 2';
-    $('clr2').classList.toggle('on', pane2Cleared);
-    render();
-  });
+  $('clr2').addEventListener('click', () => setPane2Cleared(!pane2Cleared));
   initScrollMemory();
   initRefModal();
   $('prev').addEventListener('click', () => step(-1));
