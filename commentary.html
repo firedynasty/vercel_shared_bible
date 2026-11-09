@@ -73,6 +73,7 @@
   <button id="fontDown" aria-label="Smaller text" title="Smaller text">A&minus;</button>
   <button id="fontUp" aria-label="Larger text" title="Larger text">A+</button>
   <button id="theme" aria-label="Toggle light/dark mode" title="Toggle light/dark mode"></button>
+  <button id="clr1" class="clr" title="Empty pane 1 (e.g. so the Bible text does not interfere when you search the page). Pane 2 keeps its own column, so the lines stay as wide as they were.">clr pane 1</button>
   <button id="clr2" class="clr" title="Empty pane 2 (e.g. so it does not interfere when you search the page). The underlined verse numbers stay live — click one to bring the commentary back at that verse.">clr pane 2</button>
   <label>Pane 2 <select id="source"></select></label>
 </header>
@@ -204,7 +205,8 @@ const state = { book: 0, chapter: 1, source: 'john-gill', sourceIsManual: false 
 const bibleCache = {};      // "BOOK/chapter" -> parsed json
 const commentaryCache = {}; // "source/BOOK/chapter" -> parsed json
 let renderToken = 0;
-let pane2Cleared = false;     // session-only: when true, pane 2 stays empty and no commentary is fetched
+let pane1Cleared = false;     // session-only: when true, pane 1 stays empty and no Bible text is rendered
+let pane2Cleared = false;     // session-only: when true, pane 2 stays empty and no commentary is rendered
 let restoreScroll = null;     // [pane1, pane2] scrollTop saved last visit, applied once after the first render
 let pendingVerse = null;      // verse to highlight once a navigation finishes rendering
 let recent = [];              // last visited { book, chapter }, newest first
@@ -362,14 +364,19 @@ function markVerses(starts) {
   });
 }
 
-function setPane2Cleared(cleared) {
-  pane2Cleared = cleared;
-  const btn = $('clr2');
-  btn.textContent = cleared ? 'show pane 2' : 'clr pane 2';
-  btn.classList.toggle('on', cleared);
-  // Toggling pane 2 is not navigation: pane 1 keeps the reader's place. (render()
-  // rebuilds both panes, and renderBible sends pane 1 back to the top.)
-  restoreScroll = [els.pane1.scrollTop, cleared ? 0 : els.pane2.scrollTop];
+// Either pane can be emptied, by its button or by right-clicking the pane itself.
+// Both panes keep their columns either way, so line width never changes.
+function setPanesCleared(p1, p2) {
+  pane1Cleared = p1;
+  pane2Cleared = p2;
+  for (const [id, off, show, clear] of [['clr1', p1, 'show pane 1', 'clr pane 1'], ['clr2', p2, 'show pane 2', 'clr pane 2']]) {
+    const btn = $(id);
+    btn.textContent = off ? show : clear;
+    btn.classList.toggle('on', off);
+  }
+  // Emptying a pane is not navigation: the other one keeps the reader's place.
+  // (render() rebuilds both, and renderBible sends pane 1 back to the top.)
+  restoreScroll = [p1 ? 0 : els.pane1.scrollTop, p2 ? 0 : els.pane2.scrollTop];
   return render();
 }
 
@@ -399,12 +406,16 @@ async function render() {
   syncControls();
   setMsg(els.pane1, 'Loading…');
   setMsg(els.pane2, 'Loading…');
-  try {
-    const data = await loadBible(state.book, state.chapter);
-    if (token !== renderToken) return;
-    renderBible(data);
-  } catch (err) {
-    if (token === renderToken) setMsg(els.pane1, err.message);
+  if (pane1Cleared) {
+    els.pane1.replaceChildren();
+  } else {
+    try {
+      const data = await loadBible(state.book, state.chapter);
+      if (token !== renderToken) return;
+      renderBible(data);
+    } catch (err) {
+      if (token === renderToken) setMsg(els.pane1, err.message);
+    }
   }
   if (pane2Cleared) {
     els.pane2.replaceChildren();
@@ -556,7 +567,7 @@ function init() {
       // the number is the way back: restore pane 2 and land on this verse. Pane 1 is
       // left exactly where it is — the verse is already under the reader's eye.
       const owner = v.dataset.c, vnum = v.dataset.v;   // not the sup element above
-      setPane2Cleared(false).then(() => {
+      setPanesCleared(pane1Cleared, false).then(() => {
         const again = els.pane1.querySelector(`.v[data-v="${vnum}"]`);
         if (again) {
           els.pane1.querySelectorAll('.v.hl').forEach((el) => el.classList.remove('hl'));
@@ -572,7 +583,11 @@ function init() {
     const pane = $(btn.dataset.pane);
     pane.scrollBy({ top: pane.clientHeight - 48, behavior: 'smooth' });
   }));
-  $('clr2').addEventListener('click', () => setPane2Cleared(!pane2Cleared));
+  $('clr1').addEventListener('click', () => setPanesCleared(!pane1Cleared, pane2Cleared));
+  $('clr2').addEventListener('click', () => setPanesCleared(pane1Cleared, !pane2Cleared));
+  // right-click a pane to hide it, right-click the empty space to bring it back
+  els.pane1.addEventListener('contextmenu', (e) => { e.preventDefault(); setPanesCleared(!pane1Cleared, pane2Cleared); });
+  els.pane2.addEventListener('contextmenu', (e) => { e.preventDefault(); setPanesCleared(pane1Cleared, !pane2Cleared); });
   initScrollMemory();
   initRefModal();
   $('prev').addEventListener('click', () => step(-1));
