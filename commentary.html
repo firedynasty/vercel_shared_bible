@@ -367,7 +367,10 @@ function setPane2Cleared(cleared) {
   const btn = $('clr2');
   btn.textContent = cleared ? 'show pane 2' : 'clr pane 2';
   btn.classList.toggle('on', cleared);
-  render();
+  // Toggling pane 2 is not navigation: pane 1 keeps the reader's place. (render()
+  // rebuilds both panes, and renderBible sends pane 1 back to the top.)
+  restoreScroll = [els.pane1.scrollTop, cleared ? 0 : els.pane2.scrollTop];
+  return render();
 }
 
 function jumpToCommentary(verse) {
@@ -550,9 +553,17 @@ function init() {
     if (!num) return;
     const v = num.closest('.v');
     if (pane2Cleared) {
-      // the number is the way back: restore pane 2 and land on this verse
-      pendingVerse = +v.dataset.v;
-      setPane2Cleared(false);
+      // the number is the way back: restore pane 2 and land on this verse. Pane 1 is
+      // left exactly where it is — the verse is already under the reader's eye.
+      const owner = v.dataset.c, num = v.dataset.v;
+      setPane2Cleared(false).then(() => {
+        const again = els.pane1.querySelector(`.v[data-v="${num}"]`);
+        if (again) {
+          els.pane1.querySelectorAll('.v.hl').forEach((el) => el.classList.remove('hl'));
+          again.classList.add('hl');
+        }
+        jumpToCommentary(owner);
+      });
       return;
     }
     jumpToCommentary(v.dataset.c);
