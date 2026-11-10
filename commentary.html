@@ -246,6 +246,11 @@ const bibleCache = {};      // "BOOK/chapter" -> parsed json
 const commentaryCache = {}; // "source/BOOK/chapter" -> parsed json
 let introData = null;
 let introDataPromise = null;
+// The outline is one document for the whole book, so changing chapter re-renders the same
+// content: it keeps its place instead of snapping back to the top. introShowing is the book
+// whose outline is in pane 2 right now; introAt remembers the spot while something else is.
+let introShowing = null;
+let introAt = null;
 let renderToken = 0;
 let pane1Cleared = false;     // session-only: when true, pane 1 stays empty and no Bible text is rendered
 // where each pane was when it was emptied, so it comes back there and not at the top.
@@ -419,6 +424,7 @@ function verseStarts(json) {
 }
 
 function renderCommentary(json) {
+  introShowing = null;             // the outline is leaving pane 2; its spot is already noted
   els.pane2.replaceChildren();
   const h = document.createElement('h2');
   h.textContent = `${BOOKS[state.book][1]} ${state.chapter} (${SOURCES[state.source]})`;
@@ -454,6 +460,12 @@ function renderCommentary(json) {
   markVerses(verseStarts(json));
 }
 
+// Called at the top of render(), while the outline is still in the pane: by the time any
+// render function runs, pane 2 holds the "Loading…" message and its scrollTop is back to 0.
+function noteIntroSpot() {
+  if (introShowing !== null) introAt = { book: introShowing, top: els.pane2.scrollTop };
+}
+
 function makeIntroReference(label, chapter, verse, title = `Go to ${label}`) {
   const ref = document.createElement('span');
   ref.className = 'intro-ref';
@@ -464,8 +476,10 @@ function makeIntroReference(label, chapter, verse, title = `Go to ${label}`) {
 }
 
 function renderIntro(data, summaries) {
-  els.pane2.replaceChildren();
   const book = BOOKS[state.book];
+  // the live position when the same outline is already up, otherwise where it was last left
+  const keepTop = introAt && introAt.book === book[0] ? introAt.top : 0;
+  els.pane2.replaceChildren();
   const h = document.createElement('h2');
   h.textContent = `${book[1] === 'John' ? 'Gospel of John' : book[1]}: Outline with Chapter Summaries`;
   els.pane2.appendChild(h);
@@ -476,6 +490,7 @@ function renderIntro(data, summaries) {
     missing.textContent = `No introduction available for ${book[1]}.`;
     els.pane2.appendChild(missing);
     els.pane2.scrollTop = 0;
+    introShowing = book[0];
     return;
   }
 
@@ -672,7 +687,8 @@ function renderIntro(data, summaries) {
     (insertions.get(lineIndex) || []).forEach((group) => els.pane2.appendChild(renderChapterGroup(group)));
   });
   unattached.forEach((group) => els.pane2.appendChild(renderChapterGroup(group)));
-  els.pane2.scrollTop = 0;
+  els.pane2.scrollTop = keepTop;   // the browser clamps it if the outline is shorter now
+  introShowing = book[0];
 }
 
 function setPane2Mode(mode, verse = null) {
@@ -753,6 +769,7 @@ function highlight(verse) {
 
 async function render() {
   const token = ++renderToken;
+  noteIntroSpot();
   syncControls();
   setMsg(els.pane1, 'Loading…');
   setMsg(els.pane2, 'Loading…');
@@ -771,6 +788,7 @@ async function render() {
     }
   }
   if (pane2Cleared) {
+    introShowing = null;
     els.pane2.replaceChildren();
     // The text stays out of the DOM, but the marks stay on, so a verse number is
     // still a live handle back into the commentary.
