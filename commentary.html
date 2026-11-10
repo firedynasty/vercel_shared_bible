@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shared Bible</title>
 <style>
-  :root { --bg:#faf8f4; --fg:#222; --muted:#777; --line:#ddd; --accent:#8a5a2b; --link:#1d4ed8; --pane:#fff; }
+  :root { --bg:#faf8f4; --fg:#222; --muted:#777; --line:#ddd; --accent:#8a5a2b; --link:#8a4b1f; --pane:#fff; }
   :root { --fs: 17px; }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --bg:#16171a; --fg:#e6e6e6; --muted:#9a9a9a; --line:#33353a; --accent:#d9a066; --link:#93c5fd; --pane:#1d1f23; }
+    :root:not([data-theme="light"]) { --bg:#16171a; --fg:#e6e6e6; --muted:#9a9a9a; --line:#33353a; --accent:#d9a066; --link:#e0a96d; --pane:#1d1f23; }
   }
-  :root[data-theme="dark"] { --bg:#16171a; --fg:#e6e6e6; --muted:#9a9a9a; --line:#33353a; --accent:#d9a066; --link:#93c5fd; --pane:#1d1f23; }
+  :root[data-theme="dark"] { --bg:#16171a; --fg:#e6e6e6; --muted:#9a9a9a; --line:#33353a; --accent:#d9a066; --link:#e0a96d; --pane:#1d1f23; }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body { background: var(--bg); color: var(--fg); font: 17px/1.6 Georgia, serif; display: flex; flex-direction: column; }
@@ -29,13 +29,29 @@
   .pane h2 { margin: 0 0 12px; font: 600 15px system-ui, sans-serif; color: var(--accent); }
   .pane.intro-select .v sup { cursor: pointer; text-decoration: underline dotted var(--link); text-underline-offset: 3px; }
   .pane.intro-select .v sup:hover { color: var(--link); }
-  .intro-ref { color: var(--link); cursor: pointer; font-weight: 600; text-decoration: underline dotted; padding: 0 1px; border-radius: 2px; }
+  .intro-ref { color: var(--link); cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; white-space: nowrap; }
   .intro-ref:hover { text-decoration-style: solid; }
-  .intro-chapter { margin: 18px 0 24px; }
-  .intro-chapter h4 { margin: 0 0 6px; font: 700 .95em system-ui, sans-serif; color: var(--accent); }
-  .intro-overview { margin: 0 0 8px; }
-  .intro-sections { margin: 0 0 8px; padding-left: 22px; list-style: disc; font: .92em/1.5 system-ui, sans-serif; }
-  .intro-sections li { margin: 0 0 4px; }
+  /* Outline headings: the words carry the weight, the reference stays quiet beside them.
+     The left margin is set per line in renderIntro; these rules only set rhythm and size. */
+  .intro-line { margin: 0 0 3px; padding-left: 1.3em; text-indent: -1.3em; }
+  .intro-line.lvl1 { margin-top: 26px; margin-bottom: 6px; font-weight: 600; }
+  .intro-line.lvl2 { margin-top: 12px; margin-bottom: 4px; font-size: .97em; }
+  .intro-line.lvl3 { margin-top: 9px; font-size: .95em; }
+  .intro-line.lvl4 { margin-top: 4px; font-size: .94em; }
+  .intro-line.cont { text-indent: 0; margin-top: 0; }   /* a wrapped second line of the entry above */
+  .intro-line.flush { padding-left: 0; text-indent: 0; }
+  .intro-line.cont.flush { margin: 0 0 12px; }          /* a plain paragraph, not an outline entry */
+  .intro-line.lead { margin: 20px 0 2px; font-weight: 600; }
+  .pane h2 + .intro-line.lead { margin-top: 0; }
+  .pane h2 + .intro-line { margin-top: 0; }
+  .intro-line .intro-ref { font-size: .88em; color: var(--muted); text-decoration-color: var(--line); }
+  .intro-line .intro-ref:hover { color: var(--link); text-decoration-color: currentColor; }
+  .intro-chapter { margin: 10px 0 16px; padding: 10px 14px; border-left: 3px solid var(--line); border-radius: 0 8px 8px 0; background: rgba(138,90,43,.055); }
+  .intro-chapter h4 { margin: 0 0 7px; font: 700 .76em/1.4 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .intro-overview { margin: 0; font-size: .97em; }
+  .intro-sections { margin: 0 0 10px; padding: 0; list-style: none; }
+  .intro-sections li { margin: 0 0 5px; padding-left: 1.2em; text-indent: -1.2em; font-size: .97em; }
+  .intro-sections .intro-label { margin-left: .3em; }
   .pane2-modes { display: inline-flex; gap: 0; }
   .pane2-modes button { border-radius: 0; }
   .pane2-modes button:first-child { border-radius: 6px 0 0 6px; }
@@ -463,11 +479,49 @@ function renderIntro(data, summaries) {
     return;
   }
 
-  const lines = text.split('\n');
+  // The source files indent inconsistently (some "C." lines sit at column 0) and carry stray
+  // runs of spaces, so the outline depth comes from the list marker, not from the whitespace.
+  // "C." and "D." are both letters and Roman numerals, so each marker is read as the next one
+  // in whichever sequence is already running (I, II, III… / A, B, C… / 1, 2, 3… / a, b, c…).
+  const markerLevel = (() => {
+    const ROMAN = ['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX'];
+    const letter = (i) => String.fromCharCode(65 + i);
+    let roman = 0, upper = 0, digit = 0, lower = 0;
+    return (m) => {
+      if (m === ROMAN[roman]) { roman += 1; upper = digit = lower = 0; return 1; }
+      if (m === letter(upper)) { upper += 1; digit = lower = 0; return 2; }
+      if (m === String(digit + 1)) { digit += 1; lower = 0; return 3; }
+      if (m === letter(lower).toLowerCase()) { lower += 1; return 4; }
+      // out of sequence (a restarted or skipped list): go by the marker's shape and resync
+      if (/^[a-z]$/.test(m)) { lower = m.charCodeAt(0) - 96; return 4; }
+      if (/^\d+$/.test(m)) { digit = Number(m); lower = 0; return 3; }
+      if (/^[IVXLCDM]{2,}$/.test(m) || (/^[IVXLCDM]$/.test(m) && upper === 0)) {
+        roman = Math.max(roman, ROMAN.indexOf(m) + 1); upper = digit = lower = 0; return 1;
+      }
+      upper = m.charCodeAt(0) - 64; digit = lower = 0; return 2;
+    };
+  })();
+
+  const markerPattern = /^([IVXLCDM]+|[A-Za-z]|\d+)\.\s+/;
+  let lastLevel = 1;
+  let sawOutline = false;
+  const lines = text.split('\n').map((raw) => {
+    const clean = raw.replace(/\s+/g, ' ').trim();
+    if (!clean) return null;
+    const marker = clean.match(markerPattern)?.[1];
+    // A marker only makes an outline entry when the line names a passage, or reads as a title:
+    // short and not a finished sentence. Revelation opens with eight numbered paragraphs.
+    const isEntry = !!marker && (/\(\d+:\d+/.test(clean) || (clean.length <= 120 && !/[.!?]$/.test(clean)));
+    if (isEntry) { lastLevel = markerLevel(marker); sawOutline = true; }
+    // A short unmarked line ahead of the outline is a heading of its own (Psalms: "Book 1").
+    const lead = !isEntry && !sawOutline && clean.length <= 60 && !/[.!?,;:]$/.test(clean);
+    return { text: clean, level: lastLevel, entry: isEntry, indented: sawOutline, lead };
+  }).filter(Boolean);
+
   const rangePattern = /\((\d+):(\d+)(?:[–-](\d+)(?::(\d+))?)?\)/g;
   const outlineNodes = [];
   lines.forEach((line, lineIndex) => {
-    const match = rangePattern.exec(line);
+    const match = rangePattern.exec(line.text);
     rangePattern.lastIndex = 0;
     if (!match) return;
     const startChapter = Number(match[1]);
@@ -477,7 +531,7 @@ function renderIntro(data, summaries) {
     const endVerse = match[4] !== undefined ? Number(match[4]) : hasEnd ? Number(match[3]) : startVerse;
     outlineNodes.push({
       lineIndex,
-      indent: (line.match(/^(\s+)/)?.[1].length || 0),
+      indent: line.level,
       start: startChapter * 1000 + startVerse,
       end: endChapter * 1000 + endVerse,
     });
@@ -569,9 +623,9 @@ function renderIntro(data, summaries) {
   const renderChapterGroup = (group) => {
     const section = document.createElement('section');
     section.className = 'intro-chapter';
-    section.style.marginLeft = `${Math.min(48, group.indent * 6 + 16)}px`;
+    section.style.marginLeft = `${1.3 * Math.max(0, group.indent)}em`;
     const heading = document.createElement('h4');
-    heading.textContent = `Chapter ${group.chapter}${group.part ? ` (part ${group.part})` : ''}`;
+    heading.textContent = `Chapter ${group.chapter}${group.part ? ` · part ${group.part}` : ''}`;
     section.appendChild(heading);
     if (group.sections.length) {
       const list = document.createElement('ul');
@@ -582,7 +636,9 @@ function renderIntro(data, summaries) {
           ? `${group.chapter}:${item.start_verse}`
           : `${group.chapter}:${item.start_verse}–${item.end_verse}`;
         li.appendChild(makeIntroReference(range, group.chapter, item.start_verse, `Go to ${book[1]} ${group.chapter}:${item.start_verse}`));
+        li.append(document.createTextNode(' '));   // a real space, so copied text and page search read right
         const label = document.createElement('span');
+        label.className = 'intro-label';     // keeps the heading off the verse range
         label.textContent = item.heading;
         li.appendChild(label);
         list.appendChild(li);
@@ -599,26 +655,20 @@ function renderIntro(data, summaries) {
   };
 
   lines.forEach((line, lineIndex) => {
-    if (!line.trim()) {
-      const spacer = document.createElement('div');
-      spacer.style.height = '8px';
-      els.pane2.appendChild(spacer);
-    } else {
-      const row = document.createElement('div');
-      row.style.marginBottom = '2px';
-      row.style.lineHeight = '1.6';
-      row.style.paddingLeft = `${(line.match(/^(\s+)/)?.[1].length || 0) * 6}px`;
-      const refs = /\((\d+):(\d+)(?:[–-]\d+(?::\d+)?)?\)/g;
-      let position = 0;
-      let match;
-      while ((match = refs.exec(line)) !== null) {
-        if (match.index > position) row.append(document.createTextNode(line.slice(position, match.index)));
-        row.appendChild(makeIntroReference(match[0], Number(match[1]), Number(match[2]), `Go to ${match[0].slice(1, -1)}`));
-        position = match.index + match[0].length;
-      }
-      if (position < line.length) row.append(document.createTextNode(line.slice(position)));
-      els.pane2.appendChild(row);
+    const row = document.createElement('div');
+    row.className = `intro-line lvl${line.level}${line.entry ? '' : ' cont'}${line.indented ? '' : ' flush'}${line.lead ? ' lead' : ''}`;
+    row.style.marginLeft = line.indented ? `${1.3 * (line.level - 1)}em` : '0';
+    const refs = /\((\d+):(\d+)(?:[–-]\d+(?::\d+)?)?\)/g;
+    let position = 0;
+    let match;
+    while ((match = refs.exec(line.text)) !== null) {
+      if (match.index > position) row.append(document.createTextNode(line.text.slice(position, match.index)));
+      const label = match[0].slice(1, -1);   // the parentheses only add noise beside the heading
+      row.appendChild(makeIntroReference(label, Number(match[1]), Number(match[2]), `Go to ${book[1]} ${label}`));
+      position = match.index + match[0].length;
     }
+    if (position < line.text.length) row.append(document.createTextNode(line.text.slice(position)));
+    els.pane2.appendChild(row);
     (insertions.get(lineIndex) || []).forEach((group) => els.pane2.appendChild(renderChapterGroup(group)));
   });
   unattached.forEach((group) => els.pane2.appendChild(renderChapterGroup(group)));
