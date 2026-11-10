@@ -28,6 +28,12 @@
   .pgdn { position: absolute; right: 24px; bottom: 12px; width: 40px; height: 40px; padding: 0; border-radius: 50%; opacity: .85; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
   .pane h2 { margin: 0 0 12px; font: 600 15px system-ui, sans-serif; color: var(--accent); }
   .para { margin: 0 0 14px; }
+  .summary { margin: 0 0 20px; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; background: rgba(217,160,102,.08); }
+  .summary .ov { margin: 0 0 10px; font: 15px/1.55 system-ui, sans-serif; }
+  .summary ul { margin: 0; padding: 0; list-style: none; font: 14px/1.5 system-ui, sans-serif; }
+  .summary li { margin: 0 0 4px; display: flex; gap: 8px; }
+  .summary .r { flex: none; color: var(--accent); font-weight: 600; cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+  .summary .r:hover { text-decoration-style: solid; }
   h3.heading { margin: 22px 0 8px; font: 700 1em system-ui, sans-serif; }
   .sub { font-style: italic; color: var(--muted); margin: 0 0 8px; }
   .poem { display: block; }
@@ -244,16 +250,60 @@ async function loadCommentary(source, bookIdx, chapter) {
   return commentaryCache[key];
 }
 
+// Chapter summaries, one small file per book (built by build_summaries.py).
+// A book with no file simply renders without a summary block.
+const summaryCache = {};
+async function loadSummaries(bookIdx) {
+  const abbrev = BOOKS[bookIdx][0];
+  if (!(abbrev in summaryCache)) {
+    try {
+      const res = await fetch(`summaries/${abbrev}.json`);
+      summaryCache[abbrev] = res.ok ? await res.json() : {};
+    } catch (e) {
+      summaryCache[abbrev] = {};
+    }
+  }
+  return summaryCache[abbrev];
+}
+
+// The overview and section breakdown that sit above the chapter in pane 1.
+function summaryBlock(summary) {
+  const box = document.createElement('section');
+  box.className = 'summary';
+  const ov = document.createElement('p');
+  ov.className = 'ov';
+  ov.textContent = summary.overview;
+  box.appendChild(ov);
+  const list = document.createElement('ul');
+  (summary.sections || []).forEach((s) => {
+    const li = document.createElement('li');
+    const r = document.createElement('span');
+    r.className = 'r';
+    r.textContent = s.start_verse === s.end_verse
+      ? `${state.chapter}:${s.start_verse}`
+      : `${state.chapter}:${s.start_verse}\u2013${s.end_verse}`;
+    r.title = `Go to verse ${s.start_verse}`;
+    r.addEventListener('click', () => highlight(s.start_verse));
+    const t = document.createElement('span');
+    t.textContent = s.heading;
+    li.append(r, t);
+    list.appendChild(li);
+  });
+  box.appendChild(list);
+  return box;
+}
+
 // HelloAO verse content is a list of strings; join and ignore any non-string parts.
 const flatten = (parts) => (parts || []).filter((x) => typeof x === 'string').join(' ').trim();
 
 // BSB chapter content is a sequence of headings, verses and line breaks (paragraph ends).
 // A verse's parts are plain strings, poetry lines ({text, poem}), footnote ids (skipped) and inline breaks.
-function renderBible(json) {
+function renderBible(json, summary) {
   els.pane1.replaceChildren();
   const h = document.createElement('h2');
   h.textContent = `${BOOKS[state.book][1]} ${state.chapter} (BSB)`;
   els.pane1.appendChild(h);
+  if (summary) els.pane1.appendChild(summaryBlock(summary));
 
   let para = null;
   const paragraph = () => {
@@ -427,9 +477,12 @@ async function render() {
     els.pane1.replaceChildren();
   } else {
     try {
-      const data = await loadBible(state.book, state.chapter);
+      const [data, summaries] = await Promise.all([
+        loadBible(state.book, state.chapter),
+        loadSummaries(state.book),
+      ]);
       if (token !== renderToken) return;
-      renderBible(data);
+      renderBible(data, summaries[state.chapter]);
     } catch (err) {
       if (token === renderToken) setMsg(els.pane1, err.message);
     }
