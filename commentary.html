@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shared Bible</title>
 <style>
-  :root { --bg:#faf8f4; --fg:#222; --muted:#777; --line:#ddd; --accent:#8a5a2b; --pane:#fff; }
+  :root { --bg:#faf8f4; --fg:#222; --muted:#777; --line:#ddd; --accent:#8a5a2b; --link:#1d4ed8; --pane:#fff; }
   :root { --fs: 17px; }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --bg:#16171a; --fg:#e6e6e6; --muted:#9a9a9a; --line:#33353a; --accent:#d9a066; --pane:#1d1f23; }
+    :root:not([data-theme="light"]) { --bg:#16171a; --fg:#e6e6e6; --muted:#9a9a9a; --line:#33353a; --accent:#d9a066; --link:#93c5fd; --pane:#1d1f23; }
   }
-  :root[data-theme="dark"] { --bg:#16171a; --fg:#e6e6e6; --muted:#9a9a9a; --line:#33353a; --accent:#d9a066; --pane:#1d1f23; }
+  :root[data-theme="dark"] { --bg:#16171a; --fg:#e6e6e6; --muted:#9a9a9a; --line:#33353a; --accent:#d9a066; --link:#93c5fd; --pane:#1d1f23; }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body { background: var(--bg); color: var(--fg); font: 17px/1.6 Georgia, serif; display: flex; flex-direction: column; }
@@ -27,6 +27,20 @@
   .pane { flex: 1; min-width: 0; }
   .pgdn { position: absolute; right: 24px; bottom: 12px; width: 40px; height: 40px; padding: 0; border-radius: 50%; opacity: .85; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
   .pane h2 { margin: 0 0 12px; font: 600 15px system-ui, sans-serif; color: var(--accent); }
+  .pane.intro-select .v sup { cursor: pointer; text-decoration: underline dotted var(--link); text-underline-offset: 3px; }
+  .pane.intro-select .v sup:hover { color: var(--link); }
+  .intro-ref { color: var(--link); cursor: pointer; font-weight: 600; text-decoration: underline dotted; padding: 0 1px; border-radius: 2px; }
+  .intro-ref:hover { text-decoration-style: solid; }
+  .intro-chapter { margin: 18px 0 24px; }
+  .intro-chapter h4 { margin: 0 0 6px; font: 700 .95em system-ui, sans-serif; color: var(--accent); }
+  .intro-overview { margin: 0 0 8px; }
+  .intro-sections { margin: 0 0 8px; padding-left: 22px; list-style: disc; font: .92em/1.5 system-ui, sans-serif; }
+  .intro-sections li { margin: 0 0 4px; }
+  .pane2-modes { display: inline-flex; gap: 0; }
+  .pane2-modes button { border-radius: 0; }
+  .pane2-modes button:first-child { border-radius: 6px 0 0 6px; }
+  .pane2-modes button:last-child { border-radius: 0 6px 6px 0; }
+  .pane2-modes button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
   .para { margin: 0 0 14px; }
   .summary { margin: 0 0 20px; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; background: rgba(217,160,102,.08); }
   .summary .ov { margin: 0 0 10px; font: 1em/1.55 system-ui, sans-serif; }
@@ -80,8 +94,12 @@
   <button id="fontUp" aria-label="Larger text" title="Larger text">A+</button>
   <button id="theme" aria-label="Toggle light/dark mode" title="Toggle light/dark mode"></button>
   <button id="clr1" class="clr" title="Empty pane 1 (e.g. so the Bible text does not interfere when you search the page). Pane 2 keeps its own column, so the lines stay as wide as they were.">clr pane 1</button>
-  <button id="clr2" class="clr" title="Empty pane 2 (e.g. so it does not interfere when you search the page). The underlined verse numbers stay live — click one to bring the commentary back at that verse.">clr pane 2</button>
-  <label>Pane 2 <select id="source"></select></label>
+  <button id="clr2" class="clr" title="Empty pane 2 (e.g. so it does not interfere when you search the page). Click a verse number in pane 1 to bring commentary back at that verse.">clr pane 2</button>
+  <span class="pane2-modes" role="group" aria-label="Pane 2 view">
+    <button id="showIntro" type="button" aria-pressed="false">Intro</button>
+    <button id="showCommentary" type="button" aria-pressed="true">Commentary</button>
+  </span>
+  <label id="sourceLabel">Commentary <select id="source"></select></label>
 </header>
 <main>
   <div class="wrap">
@@ -205,11 +223,13 @@ function parseRef(input, currentBook) {
 }
 
 const $ = (id) => document.getElementById(id);
-const els = { book: $('book'), chapter: $('chapter'), source: $('source'), pane1: $('pane1'), pane2: $('pane2') };
+const els = { book: $('book'), chapter: $('chapter'), source: $('source'), sourceLabel: $('sourceLabel'), pane1: $('pane1'), pane2: $('pane2') };
 
-const state = { book: 0, chapter: 1, source: 'john-gill', sourceIsManual: false };
+const state = { book: 0, chapter: 1, source: 'john-gill', sourceIsManual: false, pane2Mode: 'commentary' };
 const bibleCache = {};      // "BOOK/chapter" -> parsed json
 const commentaryCache = {}; // "source/BOOK/chapter" -> parsed json
+let introData = null;
+let introDataPromise = null;
 let renderToken = 0;
 let pane1Cleared = false;     // session-only: when true, pane 1 stays empty and no Bible text is rendered
 // where each pane was when it was emptied, so it comes back there and not at the top.
@@ -248,6 +268,20 @@ async function loadCommentary(source, bookIdx, chapter) {
     commentaryCache[key] = await res.json();
   }
   return commentaryCache[key];
+}
+
+async function loadIntroData() {
+  if (introData) return introData;
+  if (!introDataPromise) {
+    introDataPromise = fetch('bible_intro.json')
+      .then((res) => {
+        if (!res.ok) throw new Error(`Could not load book introductions (${res.status})`);
+        return res.json();
+      })
+      .then((data) => { introData = data; return data; })
+      .catch((err) => { introDataPromise = null; throw err; });
+  }
+  return introDataPromise;
 }
 
 // Chapter summaries, one small file per book (built by build_summaries.py).
@@ -404,6 +438,205 @@ function renderCommentary(json) {
   markVerses(verseStarts(json));
 }
 
+function makeIntroReference(label, chapter, verse, title = `Go to ${label}`) {
+  const ref = document.createElement('span');
+  ref.className = 'intro-ref';
+  ref.textContent = label;
+  ref.title = title;
+  ref.addEventListener('click', () => go(state.book, chapter, verse));
+  return ref;
+}
+
+function renderIntro(data, summaries) {
+  els.pane2.replaceChildren();
+  const book = BOOKS[state.book];
+  const h = document.createElement('h2');
+  h.textContent = `${book[1] === 'John' ? 'Gospel of John' : book[1]}: Outline with Chapter Summaries`;
+  els.pane2.appendChild(h);
+  const text = data[book[0]];
+  if (typeof text !== 'string' || !text.trim()) {
+    const missing = document.createElement('p');
+    missing.className = 'msg';
+    missing.textContent = `No introduction available for ${book[1]}.`;
+    els.pane2.appendChild(missing);
+    els.pane2.scrollTop = 0;
+    return;
+  }
+
+  const lines = text.split('\n');
+  const rangePattern = /\((\d+):(\d+)(?:[–-](\d+)(?::(\d+))?)?\)/g;
+  const outlineNodes = [];
+  lines.forEach((line, lineIndex) => {
+    const match = rangePattern.exec(line);
+    rangePattern.lastIndex = 0;
+    if (!match) return;
+    const startChapter = Number(match[1]);
+    const startVerse = Number(match[2]);
+    const hasEnd = match[3] !== undefined;
+    const endChapter = hasEnd && match[4] !== undefined ? Number(match[3]) : startChapter;
+    const endVerse = match[4] !== undefined ? Number(match[4]) : hasEnd ? Number(match[3]) : startVerse;
+    outlineNodes.push({
+      lineIndex,
+      indent: (line.match(/^(\s+)/)?.[1].length || 0),
+      start: startChapter * 1000 + startVerse,
+      end: endChapter * 1000 + endVerse,
+    });
+  });
+
+  const findOutlineNode = (chapter, startVerse, endVerse) => {
+    const start = chapter * 1000 + startVerse;
+    const end = chapter * 1000 + endVerse;
+    const containing = outlineNodes.filter((node) => node.start <= start && node.end >= start);
+    if (containing.length) {
+      return containing.sort((a, b) => (a.end - a.start) - (b.end - b.start) || b.indent - a.indent)[0];
+    }
+    const overlapping = outlineNodes
+      .map((node) => ({ node, overlap: Math.max(0, Math.min(node.end, end) - Math.max(node.start, start)) }))
+      .filter((item) => item.overlap > 0)
+      .sort((a, b) => b.overlap - a.overlap || (a.node.end - a.node.start) - (b.node.end - b.node.start));
+    return overlapping[0]?.node || null;
+  };
+
+  const splitOverview = (overview, groupCount) => {
+    if (!overview || groupCount <= 1) return overview ? [overview] : [];
+    const sentences = overview.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [overview];
+    return sentences.flatMap((sentence) => {
+      const parts = sentence.split(/,\s+(?=while\b)/i);
+      if (parts.length < 2) return [sentence.trim()];
+      const first = parts[0].trim().replace(/,$/, '');
+      const rest = parts.slice(1).map((part) => {
+        const trimmed = part.trim();
+        return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+      });
+      return [`${first}.`, ...rest];
+    });
+  };
+
+  const assignOverview = (chunks, groups) => {
+    if (!groups.length) return [];
+    if (chunks.length < groups.length) {
+      return groups.map((_, i) => chunks[i] || '');
+    }
+    const result = [];
+    const totalWeight = groups.reduce((sum, group) => sum + Math.max(1, group.sections.length), 0);
+    let cursor = 0;
+    let remainingWeight = totalWeight;
+    groups.forEach((group, index) => {
+      const remainingChunks = chunks.length - cursor;
+      const remainingGroups = groups.length - index;
+      const weight = Math.max(1, group.sections.length);
+      const take = index === groups.length - 1
+        ? remainingChunks
+        : Math.max(1, Math.min(remainingChunks - (remainingGroups - 1), Math.round(remainingChunks * weight / remainingWeight)));
+      result.push(chunks.slice(cursor, cursor + take).join(' '));
+      cursor += take;
+      remainingWeight -= weight;
+    });
+    return result;
+  };
+
+  const insertions = new Map();
+  const unattached = [];
+  for (let chapter = 1; chapter <= CHAPTERS[state.book]; chapter += 1) {
+    const info = summaries?.[chapter];
+    if (!info) continue;
+    const groupsByLine = new Map();
+    const items = Array.isArray(info.sections) ? info.sections : [];
+    items.forEach((item) => {
+      const node = findOutlineNode(chapter, item.start_verse, item.end_verse);
+      const lineIndex = node?.lineIndex ?? null;
+      if (!groupsByLine.has(lineIndex)) groupsByLine.set(lineIndex, { chapter, lineIndex, indent: node?.indent || 0, sections: [], overview: '' });
+      groupsByLine.get(lineIndex).sections.push(item);
+    });
+    if (!groupsByLine.size && info.overview) {
+      const node = findOutlineNode(chapter, 1, 1);
+      const lineIndex = node?.lineIndex ?? null;
+      groupsByLine.set(lineIndex, { chapter, lineIndex, indent: node?.indent || 0, sections: [], overview: '' });
+    }
+    const groups = [...groupsByLine.values()].sort((a, b) => (a.lineIndex ?? Infinity) - (b.lineIndex ?? Infinity));
+    const overviewParts = assignOverview(splitOverview(info.overview || '', groups.length), groups);
+    groups.forEach((group, index) => {
+      group.part = groups.length > 1 ? index + 1 : null;
+      group.overview = overviewParts[index] || '';
+      if (group.lineIndex === null) unattached.push(group);
+      else {
+        if (!insertions.has(group.lineIndex)) insertions.set(group.lineIndex, []);
+        insertions.get(group.lineIndex).push(group);
+      }
+    });
+  }
+
+  const renderChapterGroup = (group) => {
+    const section = document.createElement('section');
+    section.className = 'intro-chapter';
+    section.style.marginLeft = `${Math.min(48, group.indent * 6 + 16)}px`;
+    const heading = document.createElement('h4');
+    heading.textContent = `Chapter ${group.chapter}${group.part ? ` (part ${group.part})` : ''}`;
+    section.appendChild(heading);
+    if (group.sections.length) {
+      const list = document.createElement('ul');
+      list.className = 'intro-sections';
+      group.sections.forEach((item) => {
+        const li = document.createElement('li');
+        const range = item.start_verse === item.end_verse
+          ? `${group.chapter}:${item.start_verse}`
+          : `${group.chapter}:${item.start_verse}–${item.end_verse}`;
+        li.appendChild(makeIntroReference(range, group.chapter, item.start_verse, `Go to ${book[1]} ${group.chapter}:${item.start_verse}`));
+        const label = document.createElement('span');
+        label.textContent = item.heading;
+        li.appendChild(label);
+        list.appendChild(li);
+      });
+      section.appendChild(list);
+    }
+    if (group.overview) {
+      const overview = document.createElement('p');
+      overview.className = 'intro-overview';
+      overview.textContent = group.overview;
+      section.appendChild(overview);
+    }
+    return section;
+  };
+
+  lines.forEach((line, lineIndex) => {
+    if (!line.trim()) {
+      const spacer = document.createElement('div');
+      spacer.style.height = '8px';
+      els.pane2.appendChild(spacer);
+    } else {
+      const row = document.createElement('div');
+      row.style.marginBottom = '2px';
+      row.style.lineHeight = '1.6';
+      row.style.paddingLeft = `${(line.match(/^(\s+)/)?.[1].length || 0) * 6}px`;
+      const refs = /\((\d+):(\d+)(?:[–-]\d+(?::\d+)?)?\)/g;
+      let position = 0;
+      let match;
+      while ((match = refs.exec(line)) !== null) {
+        if (match.index > position) row.append(document.createTextNode(line.slice(position, match.index)));
+        row.appendChild(makeIntroReference(match[0], Number(match[1]), Number(match[2]), `Go to ${match[0].slice(1, -1)}`));
+        position = match.index + match[0].length;
+      }
+      if (position < line.length) row.append(document.createTextNode(line.slice(position)));
+      els.pane2.appendChild(row);
+    }
+    (insertions.get(lineIndex) || []).forEach((group) => els.pane2.appendChild(renderChapterGroup(group)));
+  });
+  unattached.forEach((group) => els.pane2.appendChild(renderChapterGroup(group)));
+  els.pane2.scrollTop = 0;
+}
+
+function setPane2Mode(mode, verse = null) {
+  if (mode !== 'intro' && mode !== 'commentary') return;
+  pendingVerse = verse;
+  state.pane2Mode = mode;
+  if (pane2Cleared) {
+    pane2Cleared = false;
+    $('clr2').textContent = 'clr pane 2';
+    $('clr2').classList.remove('on');
+  }
+  render();
+}
+
 // Underline the verse numbers in pane 1 that have commentary: solid = own entry, dotted = covered by an earlier section.
 function markVerses(starts) {
   const sorted = [...new Set(starts)].sort((a, b) => a - b);
@@ -421,7 +654,7 @@ function markVerses(starts) {
 // Both panes keep their columns either way, so line width never changes.
 function setPanesCleared(p1, p2) {
   const k1 = state.book + ':' + state.chapter;
-  const k2 = state.source + '/' + k1;        // a different commentary is different content
+  const k2 = (state.pane2Mode === 'intro' ? 'intro' : state.source) + '/' + k1;
   const wasP1 = pane1Cleared, wasP2 = pane2Cleared;
   pane1Cleared = p1;
   pane2Cleared = p2;
@@ -496,6 +729,14 @@ async function render() {
       if (token !== renderToken) return;
       markVerses(verseStarts(json));
     } catch (err) { /* no marks when the chapter will not load */ }
+  } else if (state.pane2Mode === 'intro') {
+    try {
+      const [data, summaries] = await Promise.all([loadIntroData(), loadSummaries(state.book)]);
+      if (token !== renderToken) return;
+      renderIntro(data, summaries);
+    } catch (err) {
+      if (token === renderToken) setMsg(els.pane2, err.message);
+    }
   } else {
     try {
       const json = await loadCommentary(state.source, state.book, state.chapter);
@@ -523,6 +764,10 @@ async function render() {
 function syncControls() {
   els.book.value = state.book;
   els.source.value = state.source;
+  els.sourceLabel.hidden = state.pane2Mode === 'intro';
+  $('showIntro').setAttribute('aria-pressed', String(state.pane2Mode === 'intro'));
+  $('showCommentary').setAttribute('aria-pressed', String(state.pane2Mode === 'commentary'));
+  els.pane1.classList.toggle('intro-select', state.pane2Mode === 'intro');
   const count = CHAPTERS[state.book];
   if (els.chapter.options.length !== count) {
     els.chapter.replaceChildren(...Array.from({ length: count }, (_, i) => new Option(i + 1, i + 1)));
@@ -622,31 +867,25 @@ function init() {
     const saved = JSON.parse(localStorage.getItem('sharedBible') || 'null');
     if (saved && BOOKS[saved.book] && SOURCES[saved.source] && saved.chapter >= 1 && saved.chapter <= CHAPTERS[saved.book]) {
       Object.assign(state, { book: saved.book, chapter: saved.chapter, source: saved.source, sourceIsManual: !!saved.sourceIsManual });
+      if (saved.pane2Mode === 'intro') state.pane2Mode = 'intro';
     }
   } catch (e) { /* ignore bad saved state */ }
 
   els.book.addEventListener('change', () => go(+els.book.value, 1));
   els.chapter.addEventListener('change', () => go(state.book, +els.chapter.value));
   els.source.addEventListener('change', () => { state.source = els.source.value; state.sourceIsManual = true; render(); });
+  $('showIntro').addEventListener('click', () => setPane2Mode('intro'));
+  $('showCommentary').addEventListener('click', () => setPane2Mode('commentary'));
   els.pane1.addEventListener('click', (e) => {
-    const num = e.target.closest('.v[data-c] sup');
+    const num = e.target.closest('.v sup');
     // in poetry the number sits inside a .poem line, so go up to the verse span
     if (!num) return;
     const v = num.closest('.v');
-    if (pane2Cleared) {
-      // the number is the way back: restore pane 2 and land on this verse. Pane 1 is
-      // left exactly where it is — the verse is already under the reader's eye.
-      const owner = v.dataset.c, vnum = v.dataset.v;   // not the sup element above
-      setPanesCleared(pane1Cleared, false).then(() => {
-        const again = els.pane1.querySelector(`.v[data-v="${vnum}"]`);
-        if (again) {
-          els.pane1.querySelectorAll('.v.hl').forEach((el) => el.classList.remove('hl'));
-          again.classList.add('hl');
-        }
-        jumpToCommentary(owner);
-      });
+    if (state.pane2Mode === 'intro' || pane2Cleared) {
+      setPane2Mode('commentary', +v.dataset.v);
       return;
     }
+    if (!v.dataset.c) return;
     jumpToCommentary(v.dataset.c);
   });
   document.querySelectorAll('.pgdn').forEach((btn) => btn.addEventListener('click', () => {
